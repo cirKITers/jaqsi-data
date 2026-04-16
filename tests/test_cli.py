@@ -14,9 +14,9 @@ class TestCLIVisualize:
     """--visualize-only should load CSV and generate plots without running benchmarks."""
 
     def test_visualize_only(self, sample_csv: Path, tmp_path: Path):
-        with patch("benchmark.__main__.plot_ratio") as mock_ratio, \
-             patch("benchmark.__main__.plot_absolute") as mock_abs, \
-             patch("benchmark.__main__.print_summary") as mock_summary:
+        with patch("benchmark.visualize.plot_ratio") as mock_ratio, \
+             patch("benchmark.visualize.plot_absolute") as mock_abs, \
+             patch("benchmark.visualize.print_summary") as mock_summary:
             main(["--visualize-only", str(sample_csv)])
 
         mock_ratio.assert_called_once()
@@ -32,11 +32,11 @@ class TestCLIConfig:
     """Config overrides should propagate correctly through the CLI."""
 
     def test_overrides_reach_runner(self, tmp_path: Path):
-        with patch("benchmark.__main__.run_benchmarks") as mock_run, \
-             patch("benchmark.__main__.load_results") as mock_load, \
-             patch("benchmark.__main__.plot_ratio"), \
-             patch("benchmark.__main__.plot_absolute"), \
-             patch("benchmark.__main__.print_summary"):
+        with patch("benchmark.runner.run_benchmarks") as mock_run, \
+             patch("benchmark.visualize.load_results") as mock_load, \
+             patch("benchmark.visualize.plot_ratio"), \
+             patch("benchmark.visualize.plot_absolute"), \
+             patch("benchmark.visualize.print_summary"):
             # Make run_benchmarks return a fake CSV path
             fake_csv = tmp_path / "fake.csv"
             fake_csv.touch()
@@ -57,9 +57,9 @@ class TestCLIConfig:
         assert cfg.execution.n_iters == 2
 
     def test_no_plot_flag(self, tmp_path: Path):
-        with patch("benchmark.__main__.run_benchmarks") as mock_run, \
-             patch("benchmark.__main__.plot_ratio") as mock_ratio, \
-             patch("benchmark.__main__.plot_absolute") as mock_abs:
+        with patch("benchmark.runner.run_benchmarks") as mock_run, \
+             patch("benchmark.visualize.plot_ratio") as mock_ratio, \
+             patch("benchmark.visualize.plot_absolute") as mock_abs:
             fake_csv = tmp_path / "fake.csv"
             fake_csv.touch()
             mock_run.return_value = fake_csv
