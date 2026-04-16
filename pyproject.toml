@@ -1,0 +1,22 @@
+[project]
+name = "yaqsi-data"
+version = "0.1.0"
+description = "Benchmarking related experiments for the YAQSI simulator"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "qml-essentials",
+    "omegaconf>=2.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.uv.sources]
+qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "715ae71914e1879bf334308fd66ee29de16c5eb1" }

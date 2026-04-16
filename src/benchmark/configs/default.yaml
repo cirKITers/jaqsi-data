@@ -1,0 +1,27 @@
+# Benchmark configuration
+seed: 1000
+warmup: true
+precision: 1.0e-8
+
+# Qubit sweep range (inclusive)
+qubits:
+  min: 2
+  max: 16
+
+# Execution settings
+execution:
+  n_iters: 50
+  batch_size: 1
+
+# Which measurement modes to benchmark
+modes:
+  - probs
+  - expval
+  - state
+  - density
+
+# Output settings
+output:
+  dir: results
+  # Set a fixed identifier to resume a previous run; null generates a timestamp
+  identifier: null
