@@ -21,6 +21,25 @@ from qiskit.quantum_info import (
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 
 
+def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
+    """Return an index array that maps Qiskit's little-endian basis order
+    to big-endian order (used by YAQSI, PennyLane, Qibo).
+
+    Qiskit labels qubit 0 as the *least*-significant bit, so basis state
+    index ``b_{n-1}…b_1 b_0`` in Qiskit corresponds to
+    ``b_0 b_1 … b_{n-1}`` in big-endian convention.  This function
+    returns a permutation that re-sorts a length-2**n vector from
+    little-endian to big-endian.
+    """
+    N = 1 << n_qubits
+    indices = np.zeros(N, dtype=int)
+    for i in range(N):
+        # Reverse the bit pattern of i (n_qubits wide)
+        rev = int(f"{i:0{n_qubits}b}"[::-1], 2)
+        indices[rev] = i
+    return indices
+
+
 class QiskitBenchmark(SimulatorBenchmark):
     name = "qiskit"
 
@@ -57,6 +76,9 @@ class QiskitBenchmark(SimulatorBenchmark):
     ) -> Callable[[jnp.ndarray], jnp.ndarray]:
         """Return a callable that maps a batch of phi values to results."""
 
+        # Pre-compute the endian-reversal index permutation once.
+        perm = _endian_reverse_indices(n_qubits)
+
         if mode == "state":
 
             def _run_state(phi_batch: jnp.ndarray) -> jnp.ndarray:
@@ -64,7 +86,8 @@ class QiskitBenchmark(SimulatorBenchmark):
                 for phi_val in np.asarray(phi_batch):
                     bound = self._circuit.assign_parameters({self._param: float(phi_val)})
                     sv = Statevector.from_instruction(bound)
-                    results.append(sv.data)
+                    # Reverse qubit ordering: little-endian → big-endian
+                    results.append(sv.data[perm])
                 return jnp.array(np.stack(results))
 
             return _run_state
@@ -76,14 +99,19 @@ class QiskitBenchmark(SimulatorBenchmark):
                 for phi_val in np.asarray(phi_batch):
                     bound = self._circuit.assign_parameters({self._param: float(phi_val)})
                     sv = Statevector.from_instruction(bound)
-                    results.append(sv.probabilities())
+                    # Reverse qubit ordering: little-endian → big-endian
+                    results.append(sv.probabilities()[perm])
                 return jnp.array(np.stack(results))
 
             return _run_probs
 
         elif mode == "expval":
 
-            # Build per-qubit Z observables
+            # Build per-qubit Z observables.
+            # Qiskit's Pauli label string is right-to-left: the rightmost
+            # character corresponds to qubit 0.  To measure Z on
+            # big-endian qubit *i* we place 'Z' at position i (from the
+            # right).
             obs_list = []
             for i in range(n_qubits):
                 label = "I" * (n_qubits - 1 - i) + "Z" + "I" * i
@@ -107,7 +135,8 @@ class QiskitBenchmark(SimulatorBenchmark):
                 for phi_val in np.asarray(phi_batch):
                     bound = self._circuit.assign_parameters({self._param: float(phi_val)})
                     dm = DensityMatrix.from_instruction(bound)
-                    results.append(dm.data)
+                    # Reverse qubit ordering on both axes
+                    results.append(dm.data[np.ix_(perm, perm)])
                 return jnp.array(np.stack(results))
 
             return _run_density
