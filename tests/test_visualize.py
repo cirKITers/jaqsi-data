@@ -33,7 +33,7 @@ class TestLoadResults:
     def test_all_simulators_present(self, sample_csv: Path):
         results = load_results(sample_csv)
         for mr in results.values():
-            assert set(mr.simulators.keys()) == {"yaqsi", "pennylane", "qiskit"}
+            assert set(mr.simulators.keys()) == {"yaqsi", "pennylane", "qiskit", "qibo"}
 
     def test_values_parsed(self, sample_csv: Path):
         results = load_results(sample_csv)
@@ -42,6 +42,7 @@ class TestLoadResults:
         assert probs.simulators["yaqsi"].mean_ms[0] == pytest.approx(1.5)
         assert probs.simulators["pennylane"].mean_ms[0] == pytest.approx(3.0)
         assert probs.simulators["qiskit"].mean_ms[0] == pytest.approx(4.0)
+        assert probs.simulators["qibo"].mean_ms[0] == pytest.approx(3.5)
 
     def test_file_not_found(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):

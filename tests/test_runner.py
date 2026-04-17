@@ -1,5 +1,6 @@
 """Tests for benchmark.runner CSV helpers and recovery logic."""
 
+
 from __future__ import annotations
 
 import csv
@@ -136,4 +137,18 @@ class TestValidateResults:
         arr = jnp.array([[0.5, 0.3]])
         r1 = BenchmarkResult("yaqsi", "probs", 2, 1, 10, 1.0, 0.1, arr)
         r2 = BenchmarkResult("qiskit", "probs", 2, 1, 10, 3.0, 0.3, arr)
+        _validate_results(r1, r2, precision=1e-8)
+
+    def test_qibo_matching_results_pass(self):
+        arr = jnp.array([[0.5, 0.3]])
+        r1 = BenchmarkResult("yaqsi", "probs", 2, 1, 10, 1.0, 0.1, arr)
+        r2 = BenchmarkResult("qibo", "probs", 2, 1, 10, 2.5, 0.2, arr)
+        _validate_results(r1, r2, precision=1e-8)
+
+    def test_expval_not_transposed_qibo(self):
+        """expval mode: Qibo uses (batch, n_obs) like Yaqsi — no transpose."""
+        ys_arr = jnp.array([[0.1, 0.2, 0.3]])
+        qb_arr = jnp.array([[0.1, 0.2, 0.3]])
+        r1 = BenchmarkResult("yaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
+        r2 = BenchmarkResult("qibo", "expval", 3, 1, 10, 2.0, 0.2, qb_arr)
         _validate_results(r1, r2, precision=1e-8)

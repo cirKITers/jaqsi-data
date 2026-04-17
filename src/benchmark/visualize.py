@@ -138,6 +138,7 @@ SIMULATOR_STYLES: Dict[str, dict] = {
     "yaqsi": {"linestyle": "-", "marker": "o"},
     "pennylane": {"linestyle": "--", "marker": "s"},
     "qiskit": {"linestyle": "-.", "marker": "D"},
+    "qibo": {"linestyle": (0, (3, 1, 1, 1)), "marker": "v"},
 }
 
 _DEFAULT_STYLE = {"linestyle": ":", "marker": "^"}
