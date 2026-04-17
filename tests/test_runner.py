@@ -116,10 +116,24 @@ class TestValidateResults:
         with pytest.raises(RuntimeError, match="Results mismatch"):
             _validate_results(r1, r2, precision=1e-8)
 
-    def test_expval_transposed(self):
+    def test_expval_transposed_pennylane(self):
         """expval mode: PL is (n_obs, batch), Yaqsi is (batch, n_obs)."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  batch=1, 3 obs
         pl_arr = jnp.array([[0.1], [0.2], [0.3]])    # (3, 1)  PL convention
         r1 = BenchmarkResult("yaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
         r2 = BenchmarkResult("pennylane", "expval", 3, 1, 10, 2.0, 0.2, pl_arr)
+        _validate_results(r1, r2, precision=1e-8)
+
+    def test_expval_not_transposed_qiskit(self):
+        """expval mode: Qiskit uses (batch, n_obs) like Yaqsi — no transpose."""
+        ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)
+        qk_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  same layout
+        r1 = BenchmarkResult("yaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
+        r2 = BenchmarkResult("qiskit", "expval", 3, 1, 10, 2.0, 0.2, qk_arr)
+        _validate_results(r1, r2, precision=1e-8)
+
+    def test_qiskit_matching_results_pass(self):
+        arr = jnp.array([[0.5, 0.3]])
+        r1 = BenchmarkResult("yaqsi", "probs", 2, 1, 10, 1.0, 0.1, arr)
+        r2 = BenchmarkResult("qiskit", "probs", 2, 1, 10, 3.0, 0.3, arr)
         _validate_results(r1, r2, precision=1e-8)

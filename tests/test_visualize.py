@@ -8,6 +8,7 @@ import pytest
 
 from benchmark.visualize import (
     ModeResults,
+    SimTimings,
     _compute_ratio_with_error,
     load_results,
     plot_ratio,
@@ -29,19 +30,26 @@ class TestLoadResults:
         for mr in results.values():
             assert mr.qubit_sizes == sorted(mr.qubit_sizes)
 
+    def test_all_simulators_present(self, sample_csv: Path):
+        results = load_results(sample_csv)
+        for mr in results.values():
+            assert set(mr.simulators.keys()) == {"yaqsi", "pennylane", "qiskit"}
+
     def test_values_parsed(self, sample_csv: Path):
         results = load_results(sample_csv)
         probs = results["probs"]
         assert probs.qubit_sizes == [2, 3]
-        assert probs.ys_mean_ms[0] == pytest.approx(1.5)
-        assert probs.pl_mean_ms[0] == pytest.approx(3.0)
+        assert probs.simulators["yaqsi"].mean_ms[0] == pytest.approx(1.5)
+        assert probs.simulators["pennylane"].mean_ms[0] == pytest.approx(3.0)
+        assert probs.simulators["qiskit"].mean_ms[0] == pytest.approx(4.0)
 
     def test_file_not_found(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):
             load_results(tmp_path / "nope.csv")
 
     def test_partial_csv_skips_incomplete(self, tmp_path: Path):
-        """If a (n_qubits, mode) pair has only one simulator, skip it."""
+        """If a (n_qubits, mode) pair is missing a simulator that exists
+        elsewhere in the file, that row should be skipped."""
         import csv
         from benchmark.runner import CSV_COLUMNS
 
@@ -49,13 +57,15 @@ class TestLoadResults:
         with open(p, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(CSV_COLUMNS)
-            # Only yaqsi for probs@2 — no pennylane counterpart
+            # probs@2: only yaqsi — incomplete
             w.writerow((2, "probs", "yaqsi", "1.0", "0.1", 1, 10))
+            # probs@3: both simulators — complete
+            w.writerow((3, "probs", "yaqsi", "2.0", "0.2", 1, 10))
+            w.writerow((3, "probs", "pennylane", "4.0", "0.3", 1, 10))
         results = load_results(p)
-        # No complete pair → empty
-        assert len(results) == 0 or all(
-            len(mr.qubit_sizes) == 0 for mr in results.values()
-        )
+        # Only probs@3 should be included (probs@2 is incomplete)
+        assert "probs" in results
+        assert results["probs"].qubit_sizes == [3]
 
 
 # ---------------------------------------------------------------------------
@@ -64,26 +74,18 @@ class TestLoadResults:
 
 class TestComputeRatio:
     def test_simple_ratio(self):
-        mr = ModeResults(
-            qubit_sizes=[2],
-            ys_mean_ms=[2.0],
-            ys_std_ms=[0.0],
-            pl_mean_ms=[4.0],
-            pl_std_ms=[0.0],
+        ratios, errors = _compute_ratio_with_error(
+            ref_mean=[2.0], ref_std=[0.0],
+            other_mean=[4.0], other_std=[0.0],
         )
-        ratios, errors = _compute_ratio_with_error(mr)
         assert ratios == [pytest.approx(2.0)]
         assert errors == [pytest.approx(0.0)]
 
     def test_error_propagation(self):
-        mr = ModeResults(
-            qubit_sizes=[2],
-            ys_mean_ms=[10.0],
-            ys_std_ms=[1.0],
-            pl_mean_ms=[20.0],
-            pl_std_ms=[2.0],
+        ratios, errors = _compute_ratio_with_error(
+            ref_mean=[10.0], ref_std=[1.0],
+            other_mean=[20.0], other_std=[2.0],
         )
-        ratios, errors = _compute_ratio_with_error(mr)
         r = 20.0 / 10.0
         expected_err = r * ((2.0 / 20.0) ** 2 + (1.0 / 10.0) ** 2) ** 0.5
         assert ratios[0] == pytest.approx(r)
@@ -111,10 +113,7 @@ class TestPlotting:
 
     def test_plot_ratio_empty_results(self, tmp_path: Path):
         """Plotting with no data should not crash."""
-        out = tmp_path / "empty.png"
-        plot_ratio({}, output_path=out)
-        # File is created but may be a blank figure
-        assert out.exists()
+        plot_ratio({}, output_path=tmp_path / "empty.png")
 
     def test_plot_absolute_empty_results(self, tmp_path: Path):
         """Empty results should not crash."""

@@ -73,26 +73,32 @@ def _append_row(path: Path, result: BenchmarkResult) -> None:
 
 
 def _validate_results(
-    res_ys: BenchmarkResult,
-    res_pl: BenchmarkResult,
+    ref: BenchmarkResult,
+    other: BenchmarkResult,
     precision: float,
 ) -> None:
-    """Raise ``RuntimeError`` when yaqsi and pennylane outputs diverge."""
-    ys_arr = jnp.asarray(res_ys.raw_output)
-    pl_arr = jnp.asarray(res_pl.raw_output)
+    """Raise ``RuntimeError`` when *other* diverges from *ref*.
 
-    # PennyLane returns expval as (n_obs, batch); Yaqsi returns (batch, n_obs)
-    if res_ys.mode == "expval":
-        pl_arr = pl_arr.T
+    The *ref* result is treated as the reference (typically yaqsi).
+    PennyLane returns expval as ``(n_obs, batch)`` while yaqsi and the
+    Qiskit adapter both use ``(batch, n_obs)`` layout.
+    """
+    ref_arr = jnp.asarray(ref.raw_output)
+    oth_arr = jnp.asarray(other.raw_output)
 
-    if not jnp.allclose(ys_arr, pl_arr, atol=precision):
+    # PennyLane returns expval transposed relative to everyone else
+    if ref.mode == "expval" and other.simulator == "pennylane":
+        oth_arr = oth_arr.T
+
+    if not jnp.allclose(ref_arr, oth_arr, atol=precision):
         raise RuntimeError(
-            f"Results mismatch for {res_ys.n_qubits} qubits, mode={res_ys.mode}:\n"
-            f"  Yaqsi  shape={ys_arr.shape}\n"
-            f"  PL     shape={pl_arr.shape}\n"
-            f"  max|Δ| = {jnp.max(jnp.abs(ys_arr - pl_arr))}"
+            f"Results mismatch ({ref.simulator} vs {other.simulator}) "
+            f"for {ref.n_qubits} qubits, mode={ref.mode}:\n"
+            f"  {ref.simulator:>10}  shape={ref_arr.shape}\n"
+            f"  {other.simulator:>10}  shape={oth_arr.shape}\n"
+            f"  max|Δ| = {jnp.max(jnp.abs(ref_arr - oth_arr))}"
         )
-    logger.info("  ✓ Results match")
+    logger.info(f"  ✓ {ref.simulator} ≈ {other.simulator}")
 
 
 def run_benchmarks(cfg: BenchmarkConfig) -> Path:
@@ -120,10 +126,12 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     # Late imports to avoid hard dependency on optional backends at module level
     from benchmark.simulators.yaqsi_sim import YaqsiBenchmark
     from benchmark.simulators.pennylane_sim import PennylaneBenchmark
+    from benchmark.simulators.qiskit_sim import QiskitBenchmark
 
     simulators: List[SimulatorBenchmark] = [
         YaqsiBenchmark(),
         PennylaneBenchmark(),
+        QiskitBenchmark(),
     ]
 
     for n_qubits in qubit_sizes:
@@ -175,13 +183,16 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                 completed.add(key)
                 sim_results[sim.name] = result
 
-            # Cross-validate if both were run in this session
-            if "yaqsi" in sim_results and "pennylane" in sim_results:
-                _validate_results(
-                    sim_results["yaqsi"],
-                    sim_results["pennylane"],
-                    cfg.precision,
-                )
+            # Cross-validate all simulators against yaqsi (reference)
+            if "yaqsi" in sim_results:
+                for other_name, other_res in sim_results.items():
+                    if other_name == "yaqsi":
+                        continue
+                    _validate_results(
+                        sim_results["yaqsi"],
+                        other_res,
+                        cfg.precision,
+                    )
 
     logger.info(f"All benchmarks complete. Results in {csv_file}")
     return csv_file
