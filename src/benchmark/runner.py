@@ -129,11 +129,15 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     from benchmark.simulators.qiskit_sim import QiskitBenchmark
     from benchmark.simulators.qibo_sim import QiboBenchmark
 
+    _all_simulators: Dict[str, SimulatorBenchmark] = {
+        "yaqsi": YaqsiBenchmark(),
+        "pennylane": PennylaneBenchmark(),
+        "qiskit": QiskitBenchmark(),
+        "qibo": QiboBenchmark(),
+    }
+
     simulators: List[SimulatorBenchmark] = [
-        YaqsiBenchmark(),
-        PennylaneBenchmark(),
-        QiskitBenchmark(),
-        QiboBenchmark(),
+        _all_simulators[name] for name in cfg.simulators
     ]
 
     for n_qubits in qubit_sizes:

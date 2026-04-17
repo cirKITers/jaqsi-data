@@ -55,6 +55,36 @@ class TestLoadConfigOverrides:
         assert cfg.modes == ["probs", "expval"]
 
 
+class TestLoadConfigSimulators:
+    """The `simulators` field should filter which backends are run."""
+
+    def test_default_simulators(self):
+        cfg = load_config()
+        assert cfg.simulators == ["yaqsi", "pennylane", "qiskit", "qibo"]
+
+    def test_override_simulators(self):
+        cfg = load_config(overrides=["simulators=[yaqsi,pennylane]"])
+        assert cfg.simulators == ["yaqsi", "pennylane"]
+
+    def test_single_simulator(self):
+        cfg = load_config(overrides=["simulators=[qiskit]"])
+        assert cfg.simulators == ["qiskit"]
+
+    def test_unknown_simulator_raises(self):
+        with pytest.raises(ValueError, match="Unknown simulator"):
+            load_config(overrides=["simulators=[yaqsi,fake_sim]"])
+
+    def test_simulators_from_yaml(self, tmp_path: Path):
+        yaml_file = tmp_path / "custom.yaml"
+        yaml_file.write_text(
+            "simulators:\n"
+            "  - yaqsi\n"
+            "  - qibo\n"
+        )
+        cfg = load_config(config_path=str(yaml_file))
+        assert cfg.simulators == ["yaqsi", "qibo"]
+
+
 class TestLoadConfigYaml:
     """A custom YAML file should be loadable and mergeable."""
 

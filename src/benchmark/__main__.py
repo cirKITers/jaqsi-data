@@ -87,7 +87,8 @@ def main(argv: list[str] | None = None) -> None:
     logger.info(f"Benchmark identifier: {cfg.output.identifier}")
     logger.info(
         f"Config: qubits={cfg.qubits.min}–{cfg.qubits.max}, "
-        f"modes={cfg.modes}, iters={cfg.execution.n_iters}, "
+        f"modes={cfg.modes}, simulators={cfg.simulators}, "
+        f"iters={cfg.execution.n_iters}, "
         f"batch={cfg.execution.batch_size}, warmup={cfg.warmup}"
     )
 

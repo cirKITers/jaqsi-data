@@ -29,6 +29,10 @@ class OutputConfig:
     identifier: Optional[str] = None
 
 
+# All available simulator names (used for validation)
+ALL_SIMULATORS: List[str] = ["yaqsi", "pennylane", "qiskit", "qibo"]
+
+
 @dataclass
 class BenchmarkConfig:
     seed: int = 1000
@@ -37,6 +41,7 @@ class BenchmarkConfig:
     qubits: QubitsConfig = field(default_factory=QubitsConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     modes: List[str] = field(default_factory=lambda: ["probs", "expval", "state", "density"])
+    simulators: List[str] = field(default_factory=lambda: list(ALL_SIMULATORS))
     output: OutputConfig = field(default_factory=OutputConfig)
 
 
@@ -90,5 +95,13 @@ def load_config(
     # Generate identifier if not provided
     if cfg.output.identifier is None:
         cfg.output.identifier = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    # Validate simulator names
+    unknown = set(cfg.simulators) - set(ALL_SIMULATORS)
+    if unknown:
+        raise ValueError(
+            f"Unknown simulator(s): {sorted(unknown)}. "
+            f"Available: {ALL_SIMULATORS}"
+        )
 
     return cfg

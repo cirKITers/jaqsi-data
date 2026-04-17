@@ -20,6 +20,13 @@ modes:
   - state
   - density
 
+# Which simulators to run (subset of: yaqsi, pennylane, qiskit, qibo)
+simulators:
+  - yaqsi
+  - pennylane
+  - qiskit
+  - qibo
+
 # Output settings
 output:
   dir: results
