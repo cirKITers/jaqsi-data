@@ -28,4 +28,5 @@ module load compiler/llvm
 module load devel/python/3.12.3
 
 cd ~/yaqsi-data
-uv run python src/benchmarks.py
+uv sync
+uv run python -m benchmark
