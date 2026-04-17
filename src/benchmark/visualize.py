@@ -148,6 +148,15 @@ def _sim_style(sim_name: str) -> dict:
     return SIMULATOR_STYLES.get(sim_name, _DEFAULT_STYLE)
 
 
+def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
+    """Force x-axis to show only integer tick values."""
+    ax.set_xticks(qubit_sizes)
+    ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(qubit_sizes))
+    ax.xaxis.set_major_formatter(matplotlib.ticker.FixedFormatter(
+        [str(q) for q in qubit_sizes]
+    ))
+
+
 # ------------------------------------------------------------------
 # Plotting
 # ------------------------------------------------------------------
@@ -160,11 +169,17 @@ def plot_ratio(
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
-    """Create a time-ratio plot (other / *reference*) for every non-reference simulator.
+    """Create a time-ratio plot (other / *reference*).
 
-    One sub-plot per non-reference simulator; within each plot lines are
-    coloured by measurement mode.
+    One subplot per measurement mode; within each subplot every
+    non-reference simulator is drawn with a distinct line style and
+    marker.  The colour encodes the mode (matching the absolute plot).
     """
+    n_modes = len(results)
+    if n_modes == 0:
+        logger.warning("No results to plot.")
+        return
+
     # Determine which other simulators exist
     other_sims: List[str] = []
     for mr in results.values():
@@ -175,65 +190,54 @@ def plot_ratio(
         logger.warning("No non-reference simulators to plot ratios for.")
         return
 
-    n_plots = len(other_sims)
-    fig, axes = plt.subplots(1, n_plots, figsize=(9 * n_plots, 5), squeeze=False)
+    fig, axes = plt.subplots(1, n_modes, figsize=(5 * n_modes, 5), squeeze=False)
     axes = axes.flatten()
 
-    for ax, other_sim in zip(axes, other_sims):
-        for mode, mr in results.items():
-            if reference not in mr.simulators or other_sim not in mr.simulators:
+    for ax, (mode, mr) in zip(axes, results.items()):
+        color = MODE_COLORS.get(mode, "#333333")
+
+        if reference not in mr.simulators:
+            continue
+        ref_st = mr.simulators[reference]
+
+        for other_sim in other_sims:
+            if other_sim not in mr.simulators:
                 continue
-            color = MODE_COLORS.get(mode, "#333333")
-            ref_st = mr.simulators[reference]
             oth_st = mr.simulators[other_sim]
             ratios, errors = _compute_ratio_with_error(
                 ref_st.mean_ms, ref_st.std_ms,
                 oth_st.mean_ms, oth_st.std_ms,
             )
+            style = _sim_style(other_sim)
             ax.errorbar(
                 mr.qubit_sizes,
                 ratios,
                 yerr=errors,
+                label=other_sim,
                 color=color,
-                linestyle="-",
-                marker="o",
                 linewidth=2,
                 capsize=4,
                 capthick=1.5,
                 elinewidth=1.2,
+                alpha=0.85,
+                **style,
             )
 
         ax.axhline(1.0, color="gray", linestyle=":", linewidth=2)
         ax.set_xlabel("Number of qubits")
-        ax.set_ylabel(f"Time ratio  {other_sim} / {reference}")
-        title = f"{other_sim} / {reference}"
-        if title_suffix:
-            title += f" ({title_suffix})"
-        ax.set_title(title)
+        ax.set_ylabel(f"Time ratio  vs {reference}")
+        ax.set_title(mode)
         ax.set_yscale("log")
-
-        all_qubits = sorted(
-            {q for mr in results.values() for q in mr.qubit_sizes}
-        )
-        if all_qubits:
-            ax.set_xticks(all_qubits)
-        ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        _set_integer_xticks(ax, mr.qubit_sizes)
+        ax.legend(fontsize=8)
         ax.grid(True, linestyle=":", alpha=0.6)
 
-        # Mode legend
-        mode_handles = [
-            mlines.Line2D(
-                [], [], color=MODE_COLORS.get(m, "#333333"),
-                linestyle="-", marker="o", linewidth=2, label=m,
-            )
-            for m in results
-        ]
-        ax.legend(
-            handles=mode_handles, title="Mode",
-            loc="lower left", fontsize=9, title_fontsize=10,
-        )
-
+    suptitle = f"Time Ratio vs {reference}"
+    if title_suffix:
+        suptitle += f" ({title_suffix})"
+    fig.suptitle(suptitle, fontsize=13)
     plt.tight_layout()
+
     if output_path is not None:
         fig.savefig(str(output_path), dpi=150)
         logger.info(f"Figure saved to {output_path}")
@@ -283,6 +287,7 @@ def plot_absolute(
         ax.set_ylabel("Time (ms)")
         ax.set_title(mode)
         ax.set_yscale("log")
+        _set_integer_xticks(ax, mr.qubit_sizes)
         ax.legend(fontsize=8)
         ax.grid(True, linestyle=":", alpha=0.6)
 
