@@ -1,4 +1,5 @@
-results/
+benchmarking_results/
+profiling_results/
 
 # Python-generated files
 __pycache__/
