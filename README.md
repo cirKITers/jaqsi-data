@@ -5,6 +5,7 @@ This repo contains code to produce benchmarking results for [YAQSI](https://gith
 - **[PennyLane](https://pennylane.ai/)** — Xanadu's differentiable quantum programming framework (`default.qubit` device with JAX interface)
 - **[Qiskit](https://qiskit.org/)** — IBM's quantum computing SDK (local `Statevector` / `DensityMatrix` simulation)
 - **[Qibo](https://qibo.science/)** — Open-source framework for quantum simulation (numpy backend)
+- **[Qulacs](https://github.com/qulacs/qulacs)** — Fast C/C++ quantum circuit simulator with Python interface
 
 ## Benchmark Circuit
 
@@ -62,6 +63,9 @@ uv run python -m benchmark --visualize-only results/benchmarks-<identifier>.csv
 ```bash
 # Run only YAQSI and PennyLane
 uv run python -m benchmark 'simulators=[yaqsi,pennylane]'
+
+# Run only YAQSI and Qulacs
+uv run python -m benchmark 'simulators=[yaqsi,qulacs]'
 ```
 
 ### Skip plot generation
@@ -83,7 +87,7 @@ The default configuration is located at [`src/benchmark/configs/default.yaml`](s
 | `execution.n_iters` | `50` | Number of timed iterations per data point |
 | `execution.batch_size` | `1` | Batch size for each iteration |
 | `modes` | `[probs, expval, state, density]` | Measurement modes to benchmark |
-| `simulators` | `[yaqsi, pennylane, qiskit, qibo]` | Simulators to include in the run |
+| `simulators` | `[yaqsi, pennylane, qiskit, qibo, qulacs]` | Simulators to include in the run |
 | `output.dir` | `results` | Directory for output CSV and plots |
 | `output.identifier` | `null` | Run identifier (auto-generated timestamp if null) |
 
@@ -128,7 +132,8 @@ sbatch slurm-job.sh
 │       ├── yaqsi_sim.py     # YAQSI adapter (reference)
 │       ├── pennylane_sim.py # PennyLane adapter
 │       ├── qiskit_sim.py   # Qiskit adapter
-│       └── qibo_sim.py     # Qibo adapter
+│       ├── qibo_sim.py     # Qibo adapter
+│       └── qulacs_sim.py   # Qulacs adapter
 ├── tests/                   # Test suite
 ├── slurm-job.sh             # Sample SLURM submission script
 └── pyproject.toml           # Project metadata & dependencies

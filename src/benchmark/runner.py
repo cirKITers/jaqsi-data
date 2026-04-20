@@ -128,12 +128,14 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     from benchmark.simulators.pennylane_sim import PennylaneBenchmark
     from benchmark.simulators.qiskit_sim import QiskitBenchmark
     from benchmark.simulators.qibo_sim import QiboBenchmark
+    from benchmark.simulators.qulacs_sim import QulacsBenchmark
 
     _all_simulators: Dict[str, SimulatorBenchmark] = {
         "yaqsi": YaqsiBenchmark(),
         "pennylane": PennylaneBenchmark(),
         "qiskit": QiskitBenchmark(),
         "qibo": QiboBenchmark(),
+        "qulacs": QulacsBenchmark(),
     }
 
     simulators: List[SimulatorBenchmark] = [

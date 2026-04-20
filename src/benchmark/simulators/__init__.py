@@ -5,7 +5,7 @@ Concrete simulators are imported lazily to avoid hard failures when
 optional backends (e.g. ``qml_essentials``, ``qiskit``) are not installed.
 """
 
-__all__ = ["YaqsiBenchmark", "PennylaneBenchmark", "QiskitBenchmark", "QiboBenchmark"]
+__all__ = ["YaqsiBenchmark", "PennylaneBenchmark", "QiskitBenchmark", "QiboBenchmark", "QulacsBenchmark"]
 
 
 def __getattr__(name: str):
@@ -21,4 +21,7 @@ def __getattr__(name: str):
     if name == "QiboBenchmark":
         from benchmark.simulators.qibo_sim import QiboBenchmark
         return QiboBenchmark
+    if name == "QulacsBenchmark":
+        from benchmark.simulators.qulacs_sim import QulacsBenchmark
+        return QulacsBenchmark
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

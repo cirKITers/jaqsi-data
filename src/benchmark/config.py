@@ -30,7 +30,7 @@ class OutputConfig:
 
 
 # All available simulator names (used for validation)
-ALL_SIMULATORS: List[str] = ["yaqsi", "pennylane", "qiskit", "qibo"]
+ALL_SIMULATORS: List[str] = ["yaqsi", "pennylane", "qiskit", "qibo", "qulacs"]
 
 
 @dataclass
