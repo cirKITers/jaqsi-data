@@ -24,7 +24,7 @@ The circuit is evaluated across four measurement modes: **probs**, **expval**, *
 
 ```bash
 # Clone the repository
-git clone https://github.com/<org>/yaqsi-data.git
+git clone git@github.com:cirKITers/yaqsi-data.git
 cd yaqsi-data
 
 # Install dependencies via uv
