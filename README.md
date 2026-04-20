@@ -94,8 +94,8 @@ Any parameter can be overridden from the command line using dot-notation (e.g. `
 Results are written to the `results/` directory:
 
 - **`benchmarks-<identifier>.csv`** — Raw timing data (mean and std in ms per simulator/mode/qubit-count combination)
-- **`benchmarks-<identifier>-ratio.png`** — Time-ratio plot (each competitor vs YAQSI)
-- **`benchmarks-<identifier>-absolute.png`** — Absolute timing plot per mode
+- **`benchmarks-<identifier>-ratio.pdf`** — Time-ratio plot (each competitor vs YAQSI)
+- **`benchmarks-<identifier>-absolute.pdf`** — Absolute timing plot per mode
 
 Runs support **automatic recovery**: if a run is interrupted, re-running with the same `output.identifier` will skip already-completed combinations.
 

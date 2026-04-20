@@ -8,11 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.lines as mlines
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.ticker
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -126,26 +123,34 @@ def _compute_ratio_with_error(
 # Colors & styling
 # ------------------------------------------------------------------
 
-MODE_COLORS: Dict[str, str] = {
-    "probs": "#E69F00",
-    "expval": "#ED665A",
-    "state": "#009371",
-    "density": "#002D4C",
+# Per-simulator colours — visually distinct and colourblind-friendly
+SIMULATOR_COLORS: Dict[str, str] = {
+    "yaqsi": "#1f77b4",      # blue
+    "pennylane": "#ff7f0e",  # orange
+    "qiskit": "#2ca02c",     # green
+    "qibo": "#d62728",       # red
 }
 
-# Per-simulator line styles and markers so they are visually distinct
-SIMULATOR_STYLES: Dict[str, dict] = {
-    "yaqsi": {"linestyle": "-", "marker": "o"},
-    "pennylane": {"linestyle": "--", "marker": "s"},
-    "qiskit": {"linestyle": "-.", "marker": "D"},
-    "qibo": {"linestyle": (0, (3, 1, 1, 1)), "marker": "v"},
-}
+# Fallback palette for simulators not listed above
+_EXTRA_COLORS = [
+    "#9467bd",  # purple
+    "#8c564b",  # brown
+    "#e377c2",  # pink
+    "#7f7f7f",  # grey
+    "#bcbd22",  # olive
+    "#17becf",  # cyan
+]
 
-_DEFAULT_STYLE = {"linestyle": ":", "marker": "^"}
+_extra_idx = 0
 
 
-def _sim_style(sim_name: str) -> dict:
-    return SIMULATOR_STYLES.get(sim_name, _DEFAULT_STYLE)
+def _sim_color(sim_name: str) -> str:
+    """Return a consistent colour for *sim_name*."""
+    global _extra_idx  # noqa: PLW0603
+    if sim_name not in SIMULATOR_COLORS:
+        SIMULATOR_COLORS[sim_name] = _EXTRA_COLORS[_extra_idx % len(_EXTRA_COLORS)]
+        _extra_idx += 1
+    return SIMULATOR_COLORS[sim_name]
 
 
 def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
@@ -172,8 +177,7 @@ def plot_ratio(
     """Create a time-ratio plot (other / *reference*).
 
     One subplot per measurement mode; within each subplot every
-    non-reference simulator is drawn with a distinct line style and
-    marker.  The colour encodes the mode (matching the absolute plot).
+    non-reference simulator is drawn with a distinct colour.
     """
     n_modes = len(results)
     if n_modes == 0:
@@ -194,8 +198,6 @@ def plot_ratio(
     axes = axes.flatten()
 
     for ax, (mode, mr) in zip(axes, results.items()):
-        color = MODE_COLORS.get(mode, "#333333")
-
         if reference not in mr.simulators:
             continue
         ref_st = mr.simulators[reference]
@@ -208,19 +210,19 @@ def plot_ratio(
                 ref_st.mean_ms, ref_st.std_ms,
                 oth_st.mean_ms, oth_st.std_ms,
             )
-            style = _sim_style(other_sim)
             ax.errorbar(
                 mr.qubit_sizes,
                 ratios,
                 yerr=errors,
                 label=other_sim,
-                color=color,
+                color=_sim_color(other_sim),
+                linestyle="-",
+                marker="o",
                 linewidth=2,
                 capsize=4,
                 capthick=1.5,
                 elinewidth=1.2,
                 alpha=0.85,
-                **style,
             )
 
         ax.axhline(1.0, color="gray", linestyle=":", linewidth=2)
@@ -256,7 +258,7 @@ def plot_absolute(
     """Create a side-by-side absolute-time plot for each mode.
 
     Within each subplot every simulator is drawn with a distinct
-    line style / marker; the colour encodes the mode.
+    colour.
     """
     n_modes = len(results)
     if n_modes == 0:
@@ -267,20 +269,18 @@ def plot_absolute(
     axes = axes.flatten()
 
     for ax, (mode, mr) in zip(axes, results.items()):
-        color = MODE_COLORS.get(mode, "#333333")
-
         for sim_name, st in mr.simulators.items():
-            style = _sim_style(sim_name)
             ax.errorbar(
                 st.qubit_sizes,
                 st.mean_ms,
                 yerr=st.std_ms,
                 label=sim_name,
-                color=color,
+                color=_sim_color(sim_name),
+                linestyle="-",
+                marker="o",
                 linewidth=2,
                 capsize=3,
                 alpha=0.85,
-                **style,
             )
 
         ax.set_xlabel("Number of qubits")
