@@ -17,6 +17,24 @@ from qulacs.gate import DenseMatrix
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 
 
+def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
+    """Return an index array that maps Qulacs' little-endian basis order
+    to big-endian order (used by YAQSI, PennyLane, Qibo).
+
+    Qulacs labels qubit 0 as the *least*-significant bit, so basis state
+    index ``b_{n-1}\u2026b_1 b_0`` in Qulacs corresponds to
+    ``b_0 b_1 \u2026 b_{n-1}`` in big-endian convention.  This function
+    returns a permutation that re-sorts a length-2**n vector from
+    little-endian to big-endian.
+    """
+    N = 1 << n_qubits
+    indices = np.zeros(N, dtype=int)
+    for i in range(N):
+        rev = int(f"{i:0{n_qubits}b}"[::-1], 2)
+        indices[rev] = i
+    return indices
+
+
 def _rx_matrix(angle: float) -> np.ndarray:
     """Return the 2×2 RX matrix using the standard convention.
 
@@ -81,6 +99,9 @@ class QulacsBenchmark(SimulatorBenchmark):
     ) -> Callable[[jnp.ndarray], jnp.ndarray]:
         """Return a callable that maps a batch of phi values to results."""
 
+        # Pre-compute the endian-reversal index permutation once.
+        perm = _endian_reverse_indices(n_qubits)
+
         if mode == "state":
 
             def _run_state(phi_batch: jnp.ndarray) -> jnp.ndarray:
@@ -89,7 +110,8 @@ class QulacsBenchmark(SimulatorBenchmark):
                     circuit = _build_circuit(n_qubits, float(phi_val))
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
-                    results.append(state.get_vector())
+                    # Reverse qubit ordering: little-endian -> big-endian
+                    results.append(state.get_vector()[perm])
                 return jnp.array(np.stack(results))
 
             return _run_state
@@ -103,14 +125,16 @@ class QulacsBenchmark(SimulatorBenchmark):
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
                     sv = state.get_vector()
+                    # Reverse qubit ordering: little-endian -> big-endian
                     results.append(np.abs(sv) ** 2)
+                    results[-1] = results[-1][perm]
                 return jnp.array(np.stack(results))
 
             return _run_probs
 
         elif mode == "expval":
 
-            # Pre-build per-qubit Z observables
+            # Pre-build per-qubit Z observables in Qulacs qubit order.
             z_obs: List[Observable] = []
             for i in range(n_qubits):
                 obs = Observable(n_qubits)
@@ -127,7 +151,8 @@ class QulacsBenchmark(SimulatorBenchmark):
                         float(obs.get_expectation_value(state).real)
                         for obs in z_obs
                     ]
-                    results.append(evs)
+                    # Reverse order: Qulacs little-endian -> big-endian
+                    results.append(evs[::-1])
                 return jnp.array(np.array(results))
 
             return _run_expval
@@ -140,7 +165,8 @@ class QulacsBenchmark(SimulatorBenchmark):
                     circuit = _build_circuit(n_qubits, float(phi_val))
                     dm = DensityMatrix(n_qubits)
                     circuit.update_quantum_state(dm)
-                    results.append(dm.get_matrix())
+                    # Reverse qubit ordering on both axes
+                    results.append(dm.get_matrix()[np.ix_(perm, perm)])
                 return jnp.array(np.stack(results))
 
             return _run_density

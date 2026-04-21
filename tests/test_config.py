@@ -60,7 +60,7 @@ class TestLoadConfigSimulators:
 
     def test_default_simulators(self):
         cfg = load_config()
-        assert cfg.simulators == ["yaqsi", "pennylane", "qiskit", "qibo"]
+        assert cfg.simulators == ["yaqsi", "pennylane", "qiskit", "qibo", "qulacs"]
 
     def test_override_simulators(self):
         cfg = load_config(overrides=["simulators=[yaqsi,pennylane]"])
