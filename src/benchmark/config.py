@@ -25,7 +25,7 @@ class ExecutionConfig:
 
 @dataclass
 class OutputConfig:
-    dir: str = "results"
+    dir: str = "benchmarking_results"
     identifier: Optional[str] = None
 
 
