@@ -151,8 +151,7 @@ class QulacsBenchmark(SimulatorBenchmark):
                         float(obs.get_expectation_value(state).real)
                         for obs in z_obs
                     ]
-                    # Reverse order: Qulacs little-endian -> big-endian
-                    results.append(evs[::-1])
+                    results.append(evs)
                 return jnp.array(np.array(results))
 
             return _run_expval
