@@ -138,7 +138,7 @@ class TestExpvalMode:
         sim = sim_cls()
         n_qubits = 3
         sim.setup(n_qubits, "expval")
-        result = sim.run(_make_phi_batch(batch_size=1))
+        result = jnp.asarray(sim.run(_make_phi_batch(batch_size=1)))
         # PennyLane returns (n_obs, batch); others return (batch, n_obs).
         if sim.name == "pennylane":
             assert result.shape == (n_qubits, 1)
@@ -150,7 +150,7 @@ class TestExpvalMode:
         """Z expectation values must be in [-1, 1]."""
         sim = sim_cls()
         sim.setup(2, "expval")
-        result = sim.run(_make_phi_batch(batch_size=1))
+        result = jnp.asarray(sim.run(_make_phi_batch(batch_size=1)))
         assert jnp.all(result >= -1.0 - 1e-10)
         assert jnp.all(result <= 1.0 + 1e-10)
 
@@ -195,9 +195,12 @@ class TestUnsupportedMode:
 
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
     def test_unsupported_mode_raises(self, sim_cls):
+        """An invalid mode must raise during setup or, at latest, during run."""
         sim = sim_cls()
-        with pytest.raises((ValueError, Exception)):
+        with pytest.raises(Exception):
             sim.setup(2, "invalid_mode")
+            # Some simulators defer the error to run time.
+            sim.run(_make_phi_batch(batch_size=1))
 
 
 # ---------------------------------------------------------------------------
