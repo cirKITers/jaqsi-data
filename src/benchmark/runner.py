@@ -79,8 +79,8 @@ def _validate_results(
 ) -> None:
     """Raise ``RuntimeError`` when *other* diverges from *ref*.
 
-    The *ref* result is treated as the reference (typically yaqsi).
-    PennyLane returns expval as ``(n_obs, batch)`` while yaqsi and the
+    The *ref* result is treated as the reference (typically jaqsi).
+    PennyLane returns expval as ``(n_obs, batch)`` while jaqsi and the
     Qiskit adapter both use ``(batch, n_obs)`` layout.
     """
     ref_arr = jnp.asarray(ref.raw_output)
@@ -131,7 +131,7 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     from benchmark.simulators.qulacs_sim import QulacsBenchmark
 
     _all_simulators: Dict[str, SimulatorBenchmark] = {
-        "yaqsi": YaqsiBenchmark(),
+        "jaqsi": YaqsiBenchmark(),
         "pennylane": PennylaneBenchmark(),
         "qiskit": QiskitBenchmark(),
         "qibo": QiboBenchmark(),
@@ -191,13 +191,13 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                 completed.add(key)
                 sim_results[sim.name] = result
 
-            # Cross-validate all simulators against yaqsi (reference)
-            if "yaqsi" in sim_results:
+            # Cross-validate all simulators against jaqsi (reference)
+            if "jaqsi" in sim_results:
                 for other_name, other_res in sim_results.items():
-                    if other_name == "yaqsi":
+                    if other_name == "jaqsi":
                         continue
                     _validate_results(
-                        sim_results["yaqsi"],
+                        sim_results["jaqsi"],
                         other_res,
                         cfg.precision,
                     )

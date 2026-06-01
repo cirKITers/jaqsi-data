@@ -1,7 +1,7 @@
 #!/bin/bash
 # 
 # name of the job for better recognizing it in the queue overview
-#SBATCH --job-name=yaqsi-data
+#SBATCH --job-name=jaqsi-data
 # 
 # define how many nodes we need
 #SBATCH --nodes=1
@@ -27,6 +27,6 @@
 module load compiler/llvm
 module load devel/python/3.12.3
 
-cd ~/yaqsi-data
+cd ~/jaqsi-data
 uv sync
 uv run python -m benchmark

@@ -60,11 +60,11 @@ class TestLoadConfigSimulators:
 
     def test_default_simulators(self):
         cfg = load_config()
-        assert cfg.simulators == ["yaqsi", "pennylane", "qiskit", "qibo", "qulacs"]
+        assert cfg.simulators == ["jaqsi", "pennylane", "qiskit", "qibo", "qulacs"]
 
     def test_override_simulators(self):
-        cfg = load_config(overrides=["simulators=[yaqsi,pennylane]"])
-        assert cfg.simulators == ["yaqsi", "pennylane"]
+        cfg = load_config(overrides=["simulators=[jaqsi,pennylane]"])
+        assert cfg.simulators == ["jaqsi", "pennylane"]
 
     def test_single_simulator(self):
         cfg = load_config(overrides=["simulators=[qiskit]"])
@@ -72,17 +72,17 @@ class TestLoadConfigSimulators:
 
     def test_unknown_simulator_raises(self):
         with pytest.raises(ValueError, match="Unknown simulator"):
-            load_config(overrides=["simulators=[yaqsi,fake_sim]"])
+            load_config(overrides=["simulators=[jaqsi,fake_sim]"])
 
     def test_simulators_from_yaml(self, tmp_path: Path):
         yaml_file = tmp_path / "custom.yaml"
         yaml_file.write_text(
             "simulators:\n"
-            "  - yaqsi\n"
+            "  - jaqsi\n"
             "  - qibo\n"
         )
         cfg = load_config(config_path=str(yaml_file))
-        assert cfg.simulators == ["yaqsi", "qibo"]
+        assert cfg.simulators == ["jaqsi", "qibo"]
 
 
 class TestLoadConfigYaml:

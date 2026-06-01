@@ -1,6 +1,6 @@
-"""YAQSI performance profiler using JAX's built-in profiler and Perfetto.
+"""JAQSI performance profiler using JAX's built-in profiler and Perfetto.
 
-This module provides ``YaqsiProfiler``, which exercises the YAQSI simulator
+This module provides ``YaqsiProfiler``, which exercises the JAQSI simulator
 on configurable qubit counts and measurement modes while capturing JAX
 execution traces.  The resulting trace directories can be opened directly
 in `Perfetto UI <https://ui.perfetto.dev/>`_ for detailed performance
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class YaqsiProfiler:
-    """Profile the YAQSI simulator with JAX/Perfetto traces.
+    """Profile the JAQSI simulator with JAX/Perfetto traces.
 
     Parameters
     ----------
@@ -137,7 +137,7 @@ class YaqsiProfiler:
     ) -> dict:
         """Run warm-up iterations followed by a JAX-profiled execution."""
         logger.info(
-            "Profiling YAQSI – mode=%s, n_qubits=%d …", mode, n_qubits
+            "Profiling JAQSI – mode=%s, n_qubits=%d …", mode, n_qubits
         )
 
         # Create a fresh simulator instance and set up the circuit
@@ -238,7 +238,7 @@ class YaqsiProfiler:
 
         lines: list[str] = []
         lines.append("=" * 96)
-        lines.append("YAQSI Profiling Summary")
+        lines.append("JAQSI Profiling Summary")
         lines.append("=" * 96)
         lines.append(
             f"{'Mode':<10} {'Qubits':>6} {'Batch':>6} {'Runs':>5} "
@@ -286,7 +286,7 @@ class YaqsiProfiler:
 
         plot_scaling(
             by_mode,
-            title="YAQSI Execution Time vs Qubit Count",
+            title="JAQSI Execution Time vs Qubit Count",
             output_path=output_dir / "profiling-scaling.pdf",
             show=self._show,
         )
@@ -294,7 +294,7 @@ class YaqsiProfiler:
 
         plot_per_mode(
             by_mode,
-            title="YAQSI Profiling — Per Mode",
+            title="JAQSI Profiling — Per Mode",
             output_path=output_dir / "profiling-per-mode.pdf",
             show=self._show,
         )
@@ -309,7 +309,7 @@ class YaqsiProfiler:
 
         plot_memory(
             by_mode,
-            title="YAQSI Peak Memory vs Qubit Count",
+            title="JAQSI Peak Memory vs Qubit Count",
             output_path=output_dir / "profiling-memory.pdf",
             show=self._show,
         )

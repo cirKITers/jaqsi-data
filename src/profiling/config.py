@@ -8,7 +8,7 @@ Mode = Literal["probs", "expval", "state", "density"]
 
 @dataclass
 class ProfilingConfig:
-    """Configuration for YAQSI JAX/Perfetto profiling.
+    """Configuration for JAQSI JAX/Perfetto profiling.
 
     Attributes
     ----------

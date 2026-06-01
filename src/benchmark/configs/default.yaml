@@ -20,9 +20,9 @@ modes:
   - state
   - density
 
-# Which simulators to run (subset of: yaqsi, pennylane, qiskit, qibo, qulacs)
+# Which simulators to run (subset of: jaqsi, pennylane, qiskit, qibo, qulacs)
 simulators:
-  - yaqsi
+  - jaqsi
   - pennylane
   - qiskit
   - qibo

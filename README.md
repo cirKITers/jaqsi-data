@@ -1,6 +1,6 @@
-# YAQSI Benchmarking & Profiling Data
+# JAQSI Benchmarking & Profiling Data
 
-This repo contains code to produce benchmarking and profiling results for [YAQSI](https://github.com/cirKITers/qml-essentials) comparing against the following quantum circuit simulators:
+This repo contains code to produce benchmarking and profiling results for [JAQSI](https://github.com/cirKITers/qml-essentials) comparing against the following quantum circuit simulators:
 
 - **[PennyLane](https://pennylane.ai/)** — Xanadu's differentiable quantum programming framework (`default.qubit` device with JAX interface)
 - **[Qiskit](https://qiskit.org/)** — IBM's quantum computing SDK (local `Statevector` / `DensityMatrix` simulation)
@@ -14,7 +14,7 @@ All simulators execute the same parametric circuit:
 1. A Hadamard gate on every qubit
 2. A controlled-RX rotation (`CRX(φ)`) in a ring topology: qubit *i* → qubit *(i+1) mod n*
 
-The circuit is evaluated across four measurement modes: **probs**, **expval**, **state**, and **density**, and results are cross-validated against YAQSI as the reference.
+The circuit is evaluated across four measurement modes: **probs**, **expval**, **state**, and **density**, and results are cross-validated against JAQSI as the reference.
 
 ## Requirements
 
@@ -25,8 +25,8 @@ The circuit is evaluated across four measurement modes: **probs**, **expval**, *
 
 ```bash
 # Clone the repository
-git clone git@github.com:cirKITers/yaqsi-data.git
-cd yaqsi-data
+git clone git@github.com:cirKITers/jaqsi-data.git
+cd jaqsi-data
 
 # Install dependencies via uv
 uv sync
@@ -61,11 +61,11 @@ uv run python -m benchmark --visualize-only results/benchmarks-<identifier>.csv
 ### Run only specific simulators
 
 ```bash
-# Run only YAQSI and PennyLane
-uv run python -m benchmark 'simulators=[yaqsi,pennylane]'
+# Run only JAQSI and PennyLane
+uv run python -m benchmark 'simulators=[jaqsi,pennylane]'
 
-# Run only YAQSI and Qulacs
-uv run python -m benchmark 'simulators=[yaqsi,qulacs]'
+# Run only JAQSI and Qulacs
+uv run python -m benchmark 'simulators=[jaqsi,qulacs]'
 ```
 
 ### Skip plot generation
@@ -87,7 +87,7 @@ The default configuration is located at [`src/benchmark/configs/default.yaml`](s
 | `execution.n_iters` | `50` | Number of timed iterations per data point |
 | `execution.batch_size` | `1` | Batch size for each iteration |
 | `modes` | `[probs, expval, state, density]` | Measurement modes to benchmark |
-| `simulators` | `[yaqsi, pennylane, qiskit, qibo, qulacs]` | Simulators to include in the run |
+| `simulators` | `[jaqsi, pennylane, qiskit, qibo, qulacs]` | Simulators to include in the run |
 | `output.dir` | `results` | Directory for output CSV and plots |
 | `output.identifier` | `null` | Run identifier (auto-generated timestamp if null) |
 
@@ -98,14 +98,14 @@ Any parameter can be overridden from the command line using dot-notation (e.g. `
 Results are written to the `benchmarking_results/` directory:
 
 - **`benchmarks-<identifier>.csv`** — Raw timing data (mean and std in ms per simulator/mode/qubit-count combination)
-- **`benchmarks-<identifier>-ratio.pdf`** — Time-ratio plot (each competitor vs YAQSI)
+- **`benchmarks-<identifier>-ratio.pdf`** — Time-ratio plot (each competitor vs JAQSI)
 - **`benchmarks-<identifier>-absolute.pdf`** — Absolute timing plot per mode
 
 Runs support **automatic recovery**: if a run is interrupted, re-running with the same `output.identifier` will skip already-completed combinations.
 
-## YAQSI Performance Profiling
+## JAQSI Performance Profiling
 
-In addition to the comparative benchmarks above, this repo includes a **JAX-level profiling** module for YAQSI.  It captures execution traces using `jax.profiler` that can be inspected in [Perfetto UI](https://ui.perfetto.dev/) for detailed analysis of kernel timings, memory allocations, XLA compilation, and device utilisation.
+In addition to the comparative benchmarks above, this repo includes a **JAX-level profiling** module for JAQSI.  It captures execution traces using `jax.profiler` that can be inspected in [Perfetto UI](https://ui.perfetto.dev/) for detailed analysis of kernel timings, memory allocations, XLA compilation, and device utilisation.
 
 ### Run profiling with default settings
 
@@ -194,7 +194,7 @@ sbatch slurm-job.sh
 │   │   └── default.yaml     # Default benchmark parameters
 │   └── simulators/
 │       ├── base.py          # Abstract base class & timing harness
-│       ├── yaqsi_sim.py     # YAQSI adapter (reference)
+│       ├── yaqsi_sim.py     # JAQSI adapter (reference)
 │       ├── pennylane_sim.py # PennyLane adapter
 │       ├── qiskit_sim.py   # Qiskit adapter
 │       ├── qibo_sim.py     # Qibo adapter

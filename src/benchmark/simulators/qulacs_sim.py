@@ -19,7 +19,7 @@ from benchmark.simulators.base import SimulatorBenchmark, Mode
 
 def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
     """Return an index array that maps Qulacs' little-endian basis order
-    to big-endian order (used by YAQSI, PennyLane, Qibo).
+    to big-endian order (used by JAQSI, PennyLane, Qibo).
 
     Qulacs labels qubit 0 as the *least*-significant bit, so basis state
     index ``b_{n-1}\u2026b_1 b_0`` in Qulacs corresponds to

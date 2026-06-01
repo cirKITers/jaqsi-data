@@ -1,4 +1,4 @@
-"""CLI entry-point for the YAQSI profiling suite.
+"""CLI entry-point for the JAQSI profiling suite.
 
 Usage examples::
 
@@ -36,7 +36,7 @@ logger = logging.getLogger("profiling")
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Profile the YAQSI quantum simulator using JAX profiler / Perfetto."
+        description="Profile the JAQSI quantum simulator using JAX profiler / Perfetto."
     )
     parser.add_argument(
         "--qubits",

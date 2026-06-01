@@ -14,7 +14,7 @@ import matplotlib.ticker
 logger = logging.getLogger(__name__)
 
 # Reference simulator used as denominator in ratio plots
-REFERENCE_SIMULATOR = "yaqsi"
+REFERENCE_SIMULATOR = "jaqsi"
 
 
 # ------------------------------------------------------------------
@@ -125,7 +125,7 @@ def _compute_ratio_with_error(
 
 # Per-simulator colours — visually distinct and colourblind-friendly
 SIMULATOR_COLORS: Dict[str, str] = {
-    "yaqsi": "#1f77b4",      # blue
+    "jaqsi": "#1f77b4",      # blue
     "pennylane": "#ff7f0e",  # orange
     "qiskit": "#2ca02c",     # green
     "qibo": "#d62728",       # red
