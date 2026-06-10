@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> None:
     # Full profiling run
     # ------------------------------------------------------------------
     from profiling.config import ProfilingConfig
-    from profiling.profiler import YaqsiProfiler
+    from profiling.profiler import JaqsiProfiler
 
     defaults = ProfilingConfig()
 
@@ -182,7 +182,7 @@ def main(argv: list[str] | None = None) -> None:
         config.seed,
     )
 
-    profiler = YaqsiProfiler(config, no_plot=args.no_plot, show=args.show)
+    profiler = JaqsiProfiler(config, no_plot=args.no_plot, show=args.show)
     profiler.run_all()
 
 

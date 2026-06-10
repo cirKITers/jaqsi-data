@@ -158,13 +158,13 @@ Results are written to the `profiling_results/` directory:
 - **`profiling-scaling.pdf`** — Execution time vs qubit count (all modes, single plot)
 - **`profiling-per-mode.pdf`** — One subplot per mode showing scaling behaviour
 - **`profiling-mode-comparison.pdf`** — Bar chart comparing modes at the largest qubit count
-- **`yaqsi_<mode>_<n>q/`** — Perfetto trace directories (one per mode/qubit combination)
+- **`jaqsi_<mode>_<n>q/`** — Perfetto trace directories (one per mode/qubit combination)
 
 ### Viewing Traces in Perfetto
 
 1. Open [https://ui.perfetto.dev/](https://ui.perfetto.dev/) in your browser
 2. Click **"Open trace file"**
-3. Navigate to a trace directory (e.g. `profiling_results/yaqsi_probs_16q/`) and select the `.perfetto-trace` file
+3. Navigate to a trace directory (e.g. `profiling_results/jaqsi_probs_16q/`) and select the `.perfetto-trace` file
 4. Explore the timeline view to inspect JAX/XLA kernel execution, memory transfers, and compilation events
 
 ## Running Tests
@@ -194,7 +194,7 @@ sbatch slurm-job.sh
 │   │   └── default.yaml     # Default benchmark parameters
 │   └── simulators/
 │       ├── base.py          # Abstract base class & timing harness
-│       ├── yaqsi_sim.py     # JAQSI adapter (reference)
+│       ├── jaqsi_sim.py     # JAQSI adapter (reference)
 │       ├── pennylane_sim.py # PennyLane adapter
 │       ├── qiskit_sim.py   # Qiskit adapter
 │       ├── qibo_sim.py     # Qibo adapter
@@ -209,3 +209,15 @@ sbatch slurm-job.sh
 └── pyproject.toml           # Project metadata & dependencies
 ```
 
+
+
+## Roadmap
+
+- [x] first implementation with four different simulators
+    - pennylane
+    - qiskit
+    - qibo
+    - qulacs
+- [ ] run an initial benchmark and confirm none is faster
+- [ ] improve the implementation of the existing simulators to get the best performance
+- [ ] run another benchmark

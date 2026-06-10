@@ -110,7 +110,7 @@ def load_profiling_results(results: list[dict]) -> Dict[str, ProfilingTimings]:
     Parameters
     ----------
     results : list[dict]
-        The list returned by ``YaqsiProfiler.run_all()``.
+        The list returned by ``JaqsiProfiler.run_all()``.
 
     Returns
     -------
@@ -196,7 +196,7 @@ def save_profiling_csv(
     Parameters
     ----------
     results : list[dict]
-        The list returned by ``YaqsiProfiler.run_all()``.
+        The list returned by ``JaqsiProfiler.run_all()``.
     csv_path : str or Path
         Output file path.
 

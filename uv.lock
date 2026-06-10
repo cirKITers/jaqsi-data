@@ -1176,6 +1176,44 @@ wheels = [
 ]
 
 [[package]]
+name = "jaqsi-data"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "omegaconf" },
+    { name = "pennylane" },
+    { name = "psutil" },
+    { name = "qibo" },
+    { name = "qiskit" },
+    { name = "qml-essentials" },
+    { name = "qulacs" },
+    { name = "tensorboard-plugin-profile", version = "2.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "tensorboard-plugin-profile", version = "2.22.2", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "omegaconf", specifier = ">=2.3" },
+    { name = "pennylane", specifier = ">=0.44.1" },
+    { name = "psutil", specifier = ">=5.9" },
+    { name = "qibo", specifier = ">=0.2" },
+    { name = "qiskit", specifier = ">=1.0" },
+    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=d493adc2d8712f99b401e1f1c0dbd3041c6012da" },
+    { name = "qulacs", specifier = ">=0.6" },
+    { name = "tensorboard-plugin-profile", specifier = ">=2.17" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.3" }]
+
+[[package]]
 name = "jaraco-functools"
 version = "4.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2377,7 +2415,7 @@ wheels = [
 [[package]]
 name = "qml-essentials"
 version = "0.2.1"
-source = { git = "https://github.com/cirKITers/qml-essentials?rev=8c8547bce48455ea4993a30096b6922c747d99ba#8c8547bce48455ea4993a30096b6922c747d99ba" }
+source = { git = "https://github.com/cirKITers/qml-essentials?rev=d493adc2d8712f99b401e1f1c0dbd3041c6012da#d493adc2d8712f99b401e1f1c0dbd3041c6012da" }
 dependencies = [
     { name = "diffrax" },
     { name = "jax" },
@@ -2827,44 +2865,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/fb/1da7ad2d5a412e8304bd0143b6c28d58db943b984ec0dec21131bee0712f/xprof-2.22.2-py3-none-manylinux_2_35_aarch64.whl", hash = "sha256:2cc2663c4db8c6deafa92ef4b0d0478fa27694401105b6e2a62c0a0d5ab7e995", size = 42125584, upload-time = "2026-04-13T19:08:34.153Z" },
     { url = "https://files.pythonhosted.org/packages/bf/bc/4d07ada8e98be6688f76adfd69a93451a31c69840fcf63d946cea7f94b7b/xprof-2.22.2-py3-none-win_amd64.whl", hash = "sha256:7595c94f3f84d34e8f3983093b6a0b0ebffbe972afac6bf2127f0e59fd3d0d11", size = 21840407, upload-time = "2026-04-13T20:38:02.118Z" },
 ]
-
-[[package]]
-name = "jaqsi-data"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "matplotlib" },
-    { name = "omegaconf" },
-    { name = "pennylane" },
-    { name = "psutil" },
-    { name = "qibo" },
-    { name = "qiskit" },
-    { name = "qml-essentials" },
-    { name = "qulacs" },
-    { name = "tensorboard-plugin-profile", version = "2.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "tensorboard-plugin-profile", version = "2.22.2", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "omegaconf", specifier = ">=2.3" },
-    { name = "pennylane", specifier = ">=0.44.1" },
-    { name = "psutil", specifier = ">=5.9" },
-    { name = "qibo", specifier = ">=0.2" },
-    { name = "qiskit", specifier = ">=1.0" },
-    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=8c8547bce48455ea4993a30096b6922c747d99ba" },
-    { name = "qulacs", specifier = ">=0.6" },
-    { name = "tensorboard-plugin-profile", specifier = ">=2.17" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.0.3" }]
 
 [[package]]
 name = "yarl"

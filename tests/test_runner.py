@@ -118,7 +118,7 @@ class TestValidateResults:
             _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_transposed_pennylane(self):
-        """expval mode: PL is (n_obs, batch), Yaqsi is (batch, n_obs)."""
+        """expval mode: PL is (n_obs, batch), Jaqsi is (batch, n_obs)."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  batch=1, 3 obs
         pl_arr = jnp.array([[0.1], [0.2], [0.3]])    # (3, 1)  PL convention
         r1 = BenchmarkResult("jaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
@@ -126,7 +126,7 @@ class TestValidateResults:
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_qiskit(self):
-        """expval mode: Qiskit uses (batch, n_obs) like Yaqsi — no transpose."""
+        """expval mode: Qiskit uses (batch, n_obs) like Jaqsi — no transpose."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)
         qk_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  same layout
         r1 = BenchmarkResult("jaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
@@ -146,7 +146,7 @@ class TestValidateResults:
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_qibo(self):
-        """expval mode: Qibo uses (batch, n_obs) like Yaqsi — no transpose."""
+        """expval mode: Qibo uses (batch, n_obs) like Jaqsi — no transpose."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])
         qb_arr = jnp.array([[0.1, 0.2, 0.3]])
         r1 = BenchmarkResult("jaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)

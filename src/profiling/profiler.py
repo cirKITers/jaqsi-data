@@ -1,6 +1,6 @@
 """JAQSI performance profiler using JAX's built-in profiler and Perfetto.
 
-This module provides ``YaqsiProfiler``, which exercises the JAQSI simulator
+This module provides ``JaqsiProfiler``, which exercises the JAQSI simulator
 on configurable qubit counts and measurement modes while capturing JAX
 execution traces.  The resulting trace directories can be opened directly
 in `Perfetto UI <https://ui.perfetto.dev/>`_ for detailed performance
@@ -19,7 +19,7 @@ import jax
 import jax.numpy as jnp
 import psutil
 
-from benchmark.simulators.yaqsi_sim import YaqsiBenchmark
+from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from profiling.config import ProfilingConfig, Mode
 from profiling.visualize import (
     load_profiling_results,
@@ -34,7 +34,7 @@ from profiling.visualize import (
 logger = logging.getLogger(__name__)
 
 
-class YaqsiProfiler:
+class JaqsiProfiler:
     """Profile the JAQSI simulator with JAX/Perfetto traces.
 
     Parameters
@@ -141,7 +141,7 @@ class YaqsiProfiler:
         )
 
         # Create a fresh simulator instance and set up the circuit
-        simulator = YaqsiBenchmark()
+        simulator = JaqsiBenchmark()
         simulator.setup(n_qubits, mode)
 
         # Generate random parameters (same approach as the benchmark runner)
@@ -170,7 +170,7 @@ class YaqsiProfiler:
         peak_jax_mem = jax_mem_before  # track peak across profiled runs
 
         # -- Profiled region --------------------------------------------------
-        trace_name = f"yaqsi_{mode}_{n_qubits}q"
+        trace_name = f"jaqsi_{mode}_{n_qubits}q"
         trace_dir = output_dir / trace_name
 
         wall_start = time.perf_counter()

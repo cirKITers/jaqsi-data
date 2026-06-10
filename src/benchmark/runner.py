@@ -124,14 +124,14 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     qubit_sizes = list(range(cfg.qubits.min, cfg.qubits.max + 1))
 
     # Late imports to avoid hard dependency on optional backends at module level
-    from benchmark.simulators.yaqsi_sim import YaqsiBenchmark
+    from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
     from benchmark.simulators.pennylane_sim import PennylaneBenchmark
     from benchmark.simulators.qiskit_sim import QiskitBenchmark
     from benchmark.simulators.qibo_sim import QiboBenchmark
     from benchmark.simulators.qulacs_sim import QulacsBenchmark
 
     _all_simulators: Dict[str, SimulatorBenchmark] = {
-        "jaqsi": YaqsiBenchmark(),
+        "jaqsi": JaqsiBenchmark(),
         "pennylane": PennylaneBenchmark(),
         "qiskit": QiskitBenchmark(),
         "qibo": QiboBenchmark(),
