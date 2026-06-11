@@ -34,11 +34,13 @@ class SimulatorBenchmark(ABC):
     name: str  # e.g. "jaqsi", "pennylane"
 
     @abstractmethod
-    def setup(self, n_qubits: int, mode: Mode) -> None:
+    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
         """Prepare the circuit / device for a given qubit count and mode.
 
         Called once before warmup and timing loops so that device
-        instantiation time is *not* included in the measurement.
+        instantiation time is not included in the measurement.  When
+        optimal_config is set, the adapter selects its performance-optimized
+        configuration instead of the default fallback.
         """
 
     @abstractmethod
@@ -59,6 +61,7 @@ class SimulatorBenchmark(ABC):
         all_phis: jnp.ndarray,
         *,
         do_warmup: bool = True,
+        optimal_config: bool = False,
     ) -> BenchmarkResult:
         """Time ``self.run`` over *n_iters* iterations.
 
@@ -74,11 +77,13 @@ class SimulatorBenchmark(ABC):
             for the timed loop.
         do_warmup:
             Whether to run a warmup pass before timing.
+        optimal_config:
+            Whether to use the performance-optimized simulator configuration.
         """
         n_iters = all_phis.shape[0] - 1
         batch_size = all_phis.shape[1]
 
-        self.setup(n_qubits, mode)
+        self.setup(n_qubits, mode, optimal_config=optimal_config)
 
         if do_warmup:
             self.warmup(all_phis[-1])

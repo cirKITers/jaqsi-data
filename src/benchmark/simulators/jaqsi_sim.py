@@ -21,7 +21,7 @@ class JaqsiBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode) -> None:
+    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
         self._n_qubits = n_qubits
         self._mode = mode
 

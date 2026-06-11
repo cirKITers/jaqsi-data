@@ -11,7 +11,7 @@ from typing import Callable, List
 import numpy as np
 import jax.numpy as jnp
 
-from qibo import Circuit, gates
+from qibo import Circuit, gates, set_backend
 from qibo.hamiltonians import SymbolicHamiltonian
 from qibo.symbols import Z
 
@@ -45,7 +45,14 @@ class QiboBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode) -> None:
+    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
+        # Backend selection is global to the process but only affects Qibo.
+        # Reset to numpy on the default path so a prior optimal run does not leak.
+        if optimal_config:
+            set_backend("qibojit", platform="numba")
+        else:
+            set_backend("numpy")
+
         self._n_qubits = n_qubits
         self._mode = mode
         self._n_params = n_qubits  # one CRX per qubit

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import jax
 import jax.numpy as jnp
 import pennylane as qml
 
@@ -21,7 +22,7 @@ class PennylaneBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode) -> None:
+    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
         self._n_qubits = n_qubits
         self._mode = mode
 
@@ -34,15 +35,28 @@ class PennylaneBenchmark(SimulatorBenchmark):
             "expval": lambda: [qml.expval(qml.PauliZ(i)) for i in range(n_qubits)],
         }
 
-        @qml.qnode(dev, interface="jax")
-        def circuit(phi):
-            for i in range(n_qubits):
-                qml.Hadamard(wires=i)
-            for i in range(n_qubits):
-                qml.CRX(phi, wires=[i, (i + 1) % n_qubits])
-            return return_map[mode]()
+        if optimal_config:
+            # Forward-only execution: disable gradient infrastructure and
+            # compile the QNode with jax.jit (XLA) for fast repeated calls.
+            @qml.qnode(dev, interface="jax", diff_method=None)
+            def circuit(phi):
+                for i in range(n_qubits):
+                    qml.Hadamard(wires=i)
+                for i in range(n_qubits):
+                    qml.CRX(phi, wires=[i, (i + 1) % n_qubits])
+                return return_map[mode]()
 
-        self._circuit_fn = circuit
+            self._circuit_fn = jax.jit(circuit)
+        else:
+            @qml.qnode(dev, interface="jax")
+            def circuit(phi):
+                for i in range(n_qubits):
+                    qml.Hadamard(wires=i)
+                for i in range(n_qubits):
+                    qml.CRX(phi, wires=[i, (i + 1) % n_qubits])
+                return return_map[mode]()
+
+            self._circuit_fn = circuit
 
     # ------------------------------------------------------------------
     # Execution helpers

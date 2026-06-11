@@ -18,7 +18,7 @@ class DummySimulator(SimulatorBenchmark):
         self.warmup_calls: int = 0
         self.run_calls: int = 0
 
-    def setup(self, n_qubits: int, mode: Mode) -> None:
+    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
         self.setup_calls.append((n_qubits, mode))
 
     def warmup(self, phi: jnp.ndarray) -> jnp.ndarray:

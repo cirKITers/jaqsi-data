@@ -3,6 +3,9 @@ seed: 1000
 warmup: true
 precision: 1.0e-8
 
+# Use performance-optimized simulator configurations (default = fallback configs)
+optimal_config: false
+
 # Qubit sweep range (inclusive)
 qubits:
   min: 2

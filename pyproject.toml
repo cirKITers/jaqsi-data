@@ -9,7 +9,9 @@ dependencies = [
     "omegaconf>=2.3",
     "matplotlib>=3.10.8",
     "qiskit>=1.0",
+    "qiskit-aer>=0.17",
     "qibo>=0.2",
+    "qibojit>=0.1; python_version < '3.14'",
     "pennylane>=0.44.1",
     "qulacs>=0.6",
     "psutil>=5.9",
@@ -39,3 +41,7 @@ qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "d
 required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
+# qibojit caps psutil<6.0.0, but qml-essentials requires psutil>=7.2.2.
+# psutil's APIs used by qibojit (cpu_count, virtual_memory) are stable across
+# 6.x/7.x, so force the newer psutil past qibojit's stale upper bound.
+override-dependencies = ["psutil>=7.2.2"]

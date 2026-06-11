@@ -26,6 +26,10 @@ class TestLoadConfigDefaults:
         cfg = load_config()
         assert cfg.modes == ["probs", "expval", "state", "density"]
 
+    def test_default_optimal_config(self):
+        cfg = load_config()
+        assert cfg.optimal_config is False
+
     def test_identifier_auto_generated(self):
         cfg = load_config()
         # Should be a 14-digit timestamp string
@@ -53,6 +57,10 @@ class TestLoadConfigOverrides:
     def test_override_modes(self):
         cfg = load_config(overrides=["modes=[probs,expval]"])
         assert cfg.modes == ["probs", "expval"]
+
+    def test_override_optimal_config(self):
+        cfg = load_config(overrides=["optimal_config=true"])
+        assert cfg.optimal_config is True
 
 
 class TestLoadConfigSimulators:

@@ -38,6 +38,7 @@ class BenchmarkConfig:
     seed: int = 1000
     warmup: bool = True
     precision: float = 1.0e-8
+    optimal_config: bool = False
     qubits: QubitsConfig = field(default_factory=QubitsConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     modes: List[str] = field(default_factory=lambda: ["probs", "expval", "state", "density"])

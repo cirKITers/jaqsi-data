@@ -182,6 +182,7 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                     mode=mode,
                     all_phis=all_phis,
                     do_warmup=cfg.warmup,
+                    optimal_config=cfg.optimal_config,
                 )
                 logger.info(
                     f"  {result.mean_ms:.2f} ± {result.std_ms:.2f} ms"

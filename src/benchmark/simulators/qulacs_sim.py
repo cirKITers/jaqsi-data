@@ -12,6 +12,7 @@ import numpy as np
 import jax.numpy as jnp
 
 from qulacs import DensityMatrix, Observable, QuantumCircuit, QuantumState
+from qulacs.circuit import QuantumCircuitOptimizer
 from qulacs.gate import DenseMatrix
 
 from benchmark.simulators.base import SimulatorBenchmark, Mode
@@ -86,28 +87,35 @@ class QulacsBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode) -> None:
+    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
         self._n_qubits = n_qubits
         self._mode = mode
-        self._run_fn = self._make_run_fn(mode, n_qubits)
+        self._run_fn = self._make_run_fn(mode, n_qubits, optimal_config)
 
     # ------------------------------------------------------------------
     # Run function factory
     # ------------------------------------------------------------------
     def _make_run_fn(
-        self, mode: Mode, n_qubits: int
+        self, mode: Mode, n_qubits: int, optimal_config: bool
     ) -> Callable[[jnp.ndarray], jnp.ndarray]:
         """Return a callable that maps a batch of phi values to results."""
 
         # Pre-compute the endian-reversal index permutation once.
         perm = _endian_reverse_indices(n_qubits)
 
+        def _build(phi_val: float) -> QuantumCircuit:
+            circuit = _build_circuit(n_qubits, phi_val)
+            if optimal_config:
+                # In-place gate fusion; numerically identical to the default.
+                QuantumCircuitOptimizer().optimize_light(circuit)
+            return circuit
+
         if mode == "state":
 
             def _run_state(phi_batch: jnp.ndarray) -> jnp.ndarray:
                 results = []
                 for phi_val in np.asarray(phi_batch):
-                    circuit = _build_circuit(n_qubits, float(phi_val))
+                    circuit = _build(float(phi_val))
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
                     # Reverse qubit ordering: little-endian -> big-endian
@@ -121,7 +129,7 @@ class QulacsBenchmark(SimulatorBenchmark):
             def _run_probs(phi_batch: jnp.ndarray) -> jnp.ndarray:
                 results = []
                 for phi_val in np.asarray(phi_batch):
-                    circuit = _build_circuit(n_qubits, float(phi_val))
+                    circuit = _build(float(phi_val))
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
                     sv = state.get_vector()
@@ -144,7 +152,7 @@ class QulacsBenchmark(SimulatorBenchmark):
             def _run_expval(phi_batch: jnp.ndarray) -> jnp.ndarray:
                 results = []
                 for phi_val in np.asarray(phi_batch):
-                    circuit = _build_circuit(n_qubits, float(phi_val))
+                    circuit = _build(float(phi_val))
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
                     evs = [
@@ -161,7 +169,7 @@ class QulacsBenchmark(SimulatorBenchmark):
             def _run_density(phi_batch: jnp.ndarray) -> jnp.ndarray:
                 results = []
                 for phi_val in np.asarray(phi_batch):
-                    circuit = _build_circuit(n_qubits, float(phi_val))
+                    circuit = _build(float(phi_val))
                     dm = DensityMatrix(n_qubits)
                     circuit.update_quantum_state(dm)
                     # Reverse qubit ordering on both axes

@@ -260,3 +260,26 @@ class TestConfigIntegration:
             name = sim_cls().name
             cfg = load_config(overrides=[f"simulators=[{name}]"])
             assert cfg.simulators == [name]
+
+
+# ---------------------------------------------------------------------------
+# Optimal-config equivalence
+# ---------------------------------------------------------------------------
+
+class TestOptimalConfigEquivalence:
+    """optimal_config must not change numerical results, only performance."""
+
+    @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
+    @pytest.mark.parametrize("mode", ["probs", "expval", "state", "density"])
+    def test_optimal_matches_default(self, sim_cls, mode):
+        phi = _make_phi_batch(batch_size=1)
+
+        default_sim = sim_cls()
+        default_sim.setup(2, mode, optimal_config=False)
+        default_out = np.asarray(default_sim.run(phi))
+
+        optimal_sim = sim_cls()
+        optimal_sim.setup(2, mode, optimal_config=True)
+        optimal_out = np.asarray(optimal_sim.run(phi))
+
+        np.testing.assert_allclose(default_out, optimal_out, atol=1e-8)
