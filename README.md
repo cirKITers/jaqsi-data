@@ -2,10 +2,10 @@
 
 This repo contains code to produce benchmarking and profiling results for [YAQSI](https://github.com/cirKITers/qml-essentials) comparing against the following quantum circuit simulators:
 
-- **[PennyLane](https://pennylane.ai/)** — Xanadu's differentiable quantum programming framework (`default.qubit` device with JAX interface)
-- **[Qiskit](https://qiskit.org/)** — IBM's quantum computing SDK (local `Statevector` / `DensityMatrix` simulation)
-- **[Qibo](https://qibo.science/)** — Open-source framework for quantum simulation (numpy backend)
-- **[Qulacs](https://github.com/qulacs/qulacs)** — Fast C/C++ quantum circuit simulator with Python interface
+- [PennyLane](https://github.com/PennyLaneAI/pennylane) — Xanadu's differentiable quantum programming framework (`default.qubit` device with JAX interface)
+- [Qiskit](https://github.com/Qiskit/qiskit) — IBM's quantum computing SDK (local `Statevector` / `DensityMatrix` simulation)
+- [Qibo](https://github.com/qiboteam/qibo) — Open-source framework for quantum simulation (numpy backend)
+- [Qulacs](https://github.com/qulacs/qulacs) — Fast C/C++ quantum circuit simulator with Python interface
 
 ## Benchmark Circuit
 
@@ -14,7 +14,7 @@ All simulators execute the same parametric circuit:
 1. A Hadamard gate on every qubit
 2. A controlled-RX rotation (`CRX(φ)`) in a ring topology: qubit *i* → qubit *(i+1) mod n*
 
-The circuit is evaluated across four measurement modes: **probs**, **expval**, **state**, and **density**, and results are cross-validated against YAQSI as the reference.
+The circuit is evaluated across four measurement modes: probs, expval, state, and density, and results are cross-validated against YAQSI as the reference.
 
 ## Requirements
 
@@ -97,15 +97,15 @@ Any parameter can be overridden from the command line using dot-notation (e.g. `
 
 Results are written to the `benchmarking_results/` directory:
 
-- **`benchmarks-<identifier>.csv`** — Raw timing data (mean and std in ms per simulator/mode/qubit-count combination)
-- **`benchmarks-<identifier>-ratio.pdf`** — Time-ratio plot (each competitor vs YAQSI)
-- **`benchmarks-<identifier>-absolute.pdf`** — Absolute timing plot per mode
+- `benchmarks-<identifier>.csv` — Raw timing data (mean and std in ms per simulator/mode/qubit-count combination)
+- `benchmarks-<identifier>-ratio.pdf` — Time-ratio plot (each competitor vs YAQSI)
+- `benchmarks-<identifier>-absolute.pdf` — Absolute timing plot per mode
 
-Runs support **automatic recovery**: if a run is interrupted, re-running with the same `output.identifier` will skip already-completed combinations.
+Runs support automatic recovery: if a run is interrupted, re-running with the same `output.identifier` will skip already-completed combinations.
 
 ## YAQSI Performance Profiling
 
-In addition to the comparative benchmarks above, this repo includes a **JAX-level profiling** module for YAQSI.  It captures execution traces using `jax.profiler` that can be inspected in [Perfetto UI](https://ui.perfetto.dev/) for detailed analysis of kernel timings, memory allocations, XLA compilation, and device utilisation.
+In addition to the comparative benchmarks above, this repo includes a JAX-level profiling module for YAQSI.  It captures execution traces using `jax.profiler` that can be inspected in [Perfetto UI](https://ui.perfetto.dev/) for detailed analysis of kernel timings, memory allocations, XLA compilation, and device utilisation.
 
 ### Run profiling with default settings
 
@@ -153,17 +153,17 @@ uv run python -m profiling --visualize-only profiling_results/profiling_results.
 
 Results are written to the `profiling_results/` directory:
 
-- **`profiling_summary.txt`** — Human-readable summary table
-- **`profiling_results.csv`** — Machine-readable timing data for re-plotting
-- **`profiling-scaling.pdf`** — Execution time vs qubit count (all modes, single plot)
-- **`profiling-per-mode.pdf`** — One subplot per mode showing scaling behaviour
-- **`profiling-mode-comparison.pdf`** — Bar chart comparing modes at the largest qubit count
-- **`yaqsi_<mode>_<n>q/`** — Perfetto trace directories (one per mode/qubit combination)
+- `profiling_summary.txt` — Human-readable summary table
+- `profiling_results.csv` — Machine-readable timing data for re-plotting
+- `profiling-scaling.pdf` — Execution time vs qubit count (all modes, single plot)
+- `profiling-per-mode.pdf` — One subplot per mode showing scaling behaviour
+- `profiling-mode-comparison.pdf` — Bar chart comparing modes at the largest qubit count
+- `yaqsi_<mode>_<n>q/` — Perfetto trace directories (one per mode/qubit combination)
 
 ### Viewing Traces in Perfetto
 
 1. Open [https://ui.perfetto.dev/](https://ui.perfetto.dev/) in your browser
-2. Click **"Open trace file"**
+2. Click "Open trace file"
 3. Navigate to a trace directory (e.g. `profiling_results/yaqsi_probs_16q/`) and select the `.perfetto-trace` file
 4. Explore the timeline view to inspect JAX/XLA kernel execution, memory transfers, and compilation events
 
