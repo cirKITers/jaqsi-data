@@ -1,17 +1,17 @@
-"""Yaqsi simulator benchmark adapter."""
+"""Jaqsi simulator benchmark adapter."""
 
 from __future__ import annotations
 
 import jax.numpy as jnp
 
-from qml_essentials.yaqsi import Script
+from qml_essentials.jaqsi import Script
 from qml_essentials.operations import H, CRX, PauliZ
 
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 
 
-class YaqsiBenchmark(SimulatorBenchmark):
-    name = "yaqsi"
+class JaqsiBenchmark(SimulatorBenchmark):
+    name = "jaqsi"
 
     def __init__(self) -> None:
         self._script: Script | None = None

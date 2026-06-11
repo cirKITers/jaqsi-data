@@ -1,4 +1,4 @@
-"""Visualization for YAQSI profiling results.
+"""Visualization for JAQSI profiling results.
 
 Generates publication-quality plots from the profiling summary data,
 suitable for inclusion in papers or technical reports.
@@ -110,7 +110,7 @@ def load_profiling_results(results: list[dict]) -> Dict[str, ProfilingTimings]:
     Parameters
     ----------
     results : list[dict]
-        The list returned by ``YaqsiProfiler.run_all()``.
+        The list returned by ``JaqsiProfiler.run_all()``.
 
     Returns
     -------
@@ -196,7 +196,7 @@ def save_profiling_csv(
     Parameters
     ----------
     results : list[dict]
-        The list returned by ``YaqsiProfiler.run_all()``.
+        The list returned by ``JaqsiProfiler.run_all()``.
     csv_path : str or Path
         Output file path.
 
@@ -236,7 +236,7 @@ def save_profiling_csv(
 def plot_scaling(
     results: Dict[str, ProfilingTimings],
     *,
-    title: str = "YAQSI Execution Time vs Qubit Count",
+    title: str = "JAQSI Execution Time vs Qubit Count",
     output_path: Optional[str | Path] = None,
     show: bool = False,
     use_avg: bool = True,
@@ -244,7 +244,7 @@ def plot_scaling(
 ) -> None:
     """Plot execution time vs qubit count — one line per mode.
 
-    This is the primary figure for a paper: it shows how YAQSI scales
+    This is the primary figure for a paper: it shows how JAQSI scales
     across measurement modes as qubit count grows.
 
     Parameters
@@ -305,7 +305,7 @@ def plot_scaling(
 def plot_per_mode(
     results: Dict[str, ProfilingTimings],
     *,
-    title: str = "YAQSI Profiling — Per Mode",
+    title: str = "JAQSI Profiling — Per Mode",
     output_path: Optional[str | Path] = None,
     show: bool = False,
     log_y: bool = True,
@@ -445,7 +445,7 @@ def plot_mode_comparison_bar(
         ax.set_xticklabels(modes)
         ax.set_ylabel("Avg time per run (ms)")
         ax.set_title(
-            title or f"YAQSI Mode Comparison — {qubit_count} qubits"
+            title or f"JAQSI Mode Comparison — {qubit_count} qubits"
         )
         ax.grid(axis="y", linestyle=":", alpha=0.5)
 
@@ -461,14 +461,14 @@ def plot_mode_comparison_bar(
 def plot_memory(
     results: Dict[str, ProfilingTimings],
     *,
-    title: str = "YAQSI Peak Memory vs Qubit Count",
+    title: str = "JAQSI Peak Memory vs Qubit Count",
     output_path: Optional[str | Path] = None,
     show: bool = False,
     log_y: bool = True,
 ) -> None:
     """Plot peak JAX device memory vs qubit count — one line per mode.
 
-    This figure shows how YAQSI's memory footprint scales with the
+    This figure shows how JAQSI's memory footprint scales with the
     number of qubits for each measurement mode.  It is especially
     useful for spotting modes with exponential memory growth (e.g.
     density-matrix simulation).

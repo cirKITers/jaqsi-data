@@ -1,7 +1,7 @@
 [project]
-name = "yaqsi-data"
+name = "jaqsi-data"
 version = "0.1.0"
-description = "Benchmarking related experiments for the YAQSI simulator"
+description = "Benchmarking related experiments for the JAQSI simulator"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -33,7 +33,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "715ae71914e1879bf334308fd66ee29de16c5eb1" }
+qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "d493adc2d8712f99b401e1f1c0dbd3041c6012da" }
 
 [tool.uv]
 required-environments = [

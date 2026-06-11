@@ -33,13 +33,13 @@ class TestLoadResults:
     def test_all_simulators_present(self, sample_csv: Path):
         results = load_results(sample_csv)
         for mr in results.values():
-            assert set(mr.simulators.keys()) == {"yaqsi", "pennylane", "qiskit", "qibo"}
+            assert set(mr.simulators.keys()) == {"jaqsi", "pennylane", "qiskit", "qibo"}
 
     def test_values_parsed(self, sample_csv: Path):
         results = load_results(sample_csv)
         probs = results["probs"]
         assert probs.qubit_sizes == [2, 3]
-        assert probs.simulators["yaqsi"].mean_ms[0] == pytest.approx(1.5)
+        assert probs.simulators["jaqsi"].mean_ms[0] == pytest.approx(1.5)
         assert probs.simulators["pennylane"].mean_ms[0] == pytest.approx(3.0)
         assert probs.simulators["qiskit"].mean_ms[0] == pytest.approx(4.0)
         assert probs.simulators["qibo"].mean_ms[0] == pytest.approx(3.5)
@@ -58,10 +58,10 @@ class TestLoadResults:
         with open(p, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(CSV_COLUMNS)
-            # probs@2: only yaqsi — incomplete
-            w.writerow((2, "probs", "yaqsi", "1.0", "0.1", 1, 10))
+            # probs@2: only jaqsi — incomplete
+            w.writerow((2, "probs", "jaqsi", "1.0", "0.1", 1, 10))
             # probs@3: both simulators — complete
-            w.writerow((3, "probs", "yaqsi", "2.0", "0.2", 1, 10))
+            w.writerow((3, "probs", "jaqsi", "2.0", "0.2", 1, 10))
             w.writerow((3, "probs", "pennylane", "4.0", "0.3", 1, 10))
         results = load_results(p)
         # Only probs@3 should be included (probs@2 is incomplete)

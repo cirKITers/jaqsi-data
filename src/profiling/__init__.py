@@ -1,5 +1,5 @@
 from profiling.config import ProfilingConfig
-from profiling.profiler import YaqsiProfiler
+from profiling.profiler import JaqsiProfiler
 from profiling.visualize import (
     load_profiling_csv,
     load_profiling_results,
@@ -13,7 +13,7 @@ from profiling.visualize import (
 
 __all__ = [
     "ProfilingConfig",
-    "YaqsiProfiler",
+    "JaqsiProfiler",
     "load_profiling_csv",
     "load_profiling_results",
     "plot_memory",

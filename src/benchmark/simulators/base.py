@@ -31,7 +31,7 @@ class BenchmarkResult:
 class SimulatorBenchmark(ABC):
     """Interface every simulator adapter must implement."""
 
-    name: str  # e.g. "yaqsi", "pennylane"
+    name: str  # e.g. "jaqsi", "pennylane"
 
     @abstractmethod
     def setup(self, n_qubits: int, mode: Mode) -> None:
