@@ -6,12 +6,12 @@ quantum circuit simulation (no external provider or API key required).
 
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable
 
 import numpy as np
 import jax.numpy as jnp
 
-from qulacs import DensityMatrix, Observable, QuantumCircuit, QuantumState
+from qulacs import DensityMatrix, QuantumCircuit, QuantumState
 from qulacs.circuit import QuantumCircuitOptimizer
 from qulacs.gate import DenseMatrix
 
@@ -142,12 +142,12 @@ class QulacsBenchmark(SimulatorBenchmark):
 
         elif mode == "expval":
 
-            # Pre-build per-qubit Z observables in Qulacs qubit order.
-            z_obs: List[Observable] = []
-            for i in range(n_qubits):
-                obs = Observable(n_qubits)
-                obs.add_operator(1.0, f"Z {i}")
-                z_obs.append(obs)
+            # Per-qubit Pauli-Z signs over the little-endian computational basis,
+            # precomputed once. signs[i, k] is +1 when bit i of basis index k is 0
+            # and -1 otherwise, so signs @ probabilities gives the per-qubit Z
+            # expectation values in Qulacs qubit order.
+            basis = np.arange(1 << n_qubits)
+            signs = 1.0 - 2.0 * ((basis[None, :] >> np.arange(n_qubits)[:, None]) & 1)
 
             def _run_expval(phi_batch: jnp.ndarray) -> jnp.ndarray:
                 results = []
@@ -155,12 +155,9 @@ class QulacsBenchmark(SimulatorBenchmark):
                     circuit = _build(float(phi_val))
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
-                    evs = [
-                        float(obs.get_expectation_value(state).real)
-                        for obs in z_obs
-                    ]
-                    results.append(evs)
-                return jnp.array(np.array(results))
+                    probs = np.abs(state.get_vector()) ** 2
+                    results.append(signs @ probs)
+                return jnp.array(np.stack(results))
 
             return _run_expval
 

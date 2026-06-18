@@ -1,4 +1,6 @@
 results/*.pdf
+results/*.png
+results/*.pgf
 paper
 *.md
 !README.md

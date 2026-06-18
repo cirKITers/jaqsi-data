@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -90,10 +91,17 @@ class SimulatorBenchmark(ABC):
 
         times: list[float] = []
         result = None
-        for i in range(n_iters):
-            t0 = time.perf_counter()
-            result = self.run(all_phis[i])
-            times.append(time.perf_counter() - t0)
+        gc.collect()
+        gc_was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            for i in range(n_iters):
+                t0 = time.perf_counter()
+                result = self.run(all_phis[i])
+                times.append(time.perf_counter() - t0)
+        finally:
+            if gc_was_enabled:
+                gc.enable()
 
         mean_s = float(np.mean(times))
         std_s = float(np.std(times))

@@ -287,22 +287,21 @@ class JaqsiProfiler:
         plot_scaling(
             by_mode,
             title="JAQSI Execution Time vs Qubit Count",
-            output_path=output_dir / "profiling-scaling.pdf",
+            output_path=output_dir / "profiling-scaling.pgf",
             show=self._show,
         )
         logger.info("Generated scaling plot.")
 
         plot_per_mode(
             by_mode,
-            title="JAQSI Profiling — Per Mode",
-            output_path=output_dir / "profiling-per-mode.pdf",
+            output_path=output_dir / "profiling-per-mode.pgf",
             show=self._show,
         )
         logger.info("Generated per-mode plot.")
 
         plot_mode_comparison_bar(
             by_mode,
-            output_path=output_dir / "profiling-mode-comparison.pdf",
+            output_path=output_dir / "profiling-mode-comparison.pgf",
             show=self._show,
         )
         logger.info("Generated mode comparison bar chart.")
@@ -310,7 +309,7 @@ class JaqsiProfiler:
         plot_memory(
             by_mode,
             title="JAQSI Peak Memory vs Qubit Count",
-            output_path=output_dir / "profiling-memory.pdf",
+            output_path=output_dir / "profiling-memory.pgf",
             show=self._show,
         )
         logger.info("Generated memory scaling plot.")
