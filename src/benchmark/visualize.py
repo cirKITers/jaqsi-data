@@ -226,7 +226,7 @@ def plot_ratio(
             )
 
         ax.axhline(1.0, color="gray", linestyle=":", linewidth=2)
-        ax.set_xlabel("Number of qubits")
+        ax.set_xlabel("# qubits")
         ax.set_ylabel(f"Time ratio  vs {reference}")
         ax.set_title(mode)
         ax.set_yscale("log")
@@ -283,7 +283,7 @@ def plot_absolute(
                 alpha=0.85,
             )
 
-        ax.set_xlabel("Number of qubits")
+        ax.set_xlabel("# qubits")
         ax.set_ylabel("Time (ms)")
         ax.set_title(mode)
         ax.set_yscale("log")

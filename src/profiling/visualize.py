@@ -282,7 +282,7 @@ def plot_scaling(
                 alpha=0.9,
             )
 
-        ax.set_xlabel("Number of qubits")
+        ax.set_xlabel("# qubits")
         ylabel = "Avg time per run (ms)" if use_avg else "Total wall time (ms)"
         ax.set_ylabel(ylabel)
         if log_y:
@@ -352,7 +352,7 @@ def plot_per_mode(
                 markersize=6,
                 alpha=0.9,
             )
-            ax.set_xlabel("Number of qubits")
+            ax.set_xlabel("# qubits")
             ax.set_ylabel("Avg time per run (ms)")
             ax.set_title(mode)
             if log_y:
@@ -521,7 +521,7 @@ def plot_memory(
                 alpha=0.9,
             )
 
-        ax.set_xlabel("Number of qubits")
+        ax.set_xlabel("# qubits")
         ax.set_ylabel("Peak JAX memory (MB)")
         if log_y:
             ax.set_yscale("log")
