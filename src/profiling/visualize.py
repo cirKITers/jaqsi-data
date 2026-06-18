@@ -23,29 +23,47 @@ logger = logging.getLogger(__name__)
 # Styling – publication-quality defaults
 # ------------------------------------------------------------------
 
-# Use a serif font and LaTeX-style rendering when available
+# Two-column text width and single-column width (inches) of the IEEE
+# conference paper, used to size figures for natural-scale inclusion.
+TEXTWIDTH_IN = 7.16
+COLWIDTH_IN = 3.45
+
+# Paper-grade rcParams: serif fonts, subtle grid, no top/right spines, and a
+# PGF backend configured for the pdflatex build of the paper.
 PLOT_RC = {
     "font.family": "serif",
-    "font.size": 10,
-    "axes.labelsize": 11,
-    "axes.titlesize": 12,
-    "legend.fontsize": 9,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
+    "font.serif": ["Times", "DejaVu Serif"],
+    "mathtext.fontset": "cm",
+    "font.size": 9,
+    "axes.labelsize": 9,
+    "axes.titlesize": 9,
+    "legend.fontsize": 8,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
+    "axes.linewidth": 0.8,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.grid": True,
+    "grid.linestyle": ":",
+    "grid.linewidth": 0.6,
+    "grid.alpha": 0.5,
+    "legend.frameon": False,
+    "lines.linewidth": 1.5,
+    "lines.markersize": 4,
     "figure.dpi": 150,
     "savefig.dpi": 300,
     "savefig.bbox": "tight",
-    "axes.grid": True,
-    "grid.linestyle": ":",
-    "grid.alpha": 0.5,
+    "pgf.texsystem": "pdflatex",
+    "pgf.rcfonts": False,
+    "pgf.preamble": r"\usepackage[T1]{fontenc}\usepackage[utf8]{inputenc}",
 }
 
-# Per-mode colours – visually distinct and colourblind-friendly
+# Per-mode colours – Paul Tol "bright" qualitative scheme (colourblind safe)
 MODE_COLORS: Dict[str, str] = {
-    "probs": "#1f77b4",    # blue
-    "expval": "#ff7f0e",   # orange
-    "state": "#2ca02c",    # green
-    "density": "#d62728",  # red
+    "probs": "#4477AA",    # blue
+    "expval": "#EE6677",   # red
+    "state": "#228833",    # green
+    "density": "#AA3377",  # purple
 }
 
 MODE_MARKERS: Dict[str, str] = {
@@ -55,9 +73,31 @@ MODE_MARKERS: Dict[str, str] = {
     "density": "D",
 }
 
-# Fallback palette
-_EXTRA_COLORS = ["#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+# Fallback palette (remaining Tol bright colours)
+_EXTRA_COLORS = ["#66CCEE", "#CCBB44", "#BBBBBB"]
 _extra_idx = 0
+
+
+def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
+    """Write the figure as PGF (for the paper) and PNG (for quick inspection).
+
+    PDF output is intentionally dropped. PGF is attempted after the PNG so a
+    missing LaTeX toolchain (e.g. on a headless compute node) degrades to a
+    PNG-only result with a warning instead of raising.
+    """
+    base = Path(output_path).with_suffix("")
+    png_path = base.with_suffix(".png")
+    pgf_path = base.with_suffix(".pgf")
+    fig.savefig(str(png_path))
+    try:
+        fig.savefig(str(pgf_path))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "PGF export failed for %s (LaTeX required): %s", pgf_path, exc
+        )
+        logger.info("Figure saved to %s", png_path)
+    else:
+        logger.info("Figure saved to %s and %s", pgf_path, png_path)
 
 
 def _mode_color(mode: str) -> str:
@@ -255,7 +295,7 @@ def plot_scaling(
     title : str
         Figure suptitle.
     output_path : str or Path, optional
-        If given the figure is saved to this path (PDF recommended).
+        If given, the figure is written to this base path as PGF and PNG.
     show : bool
         Call ``plt.show()`` after rendering.
     use_avg : bool
@@ -264,7 +304,7 @@ def plot_scaling(
         Use logarithmic y-axis.
     """
     with plt.rc_context(PLOT_RC):
-        fig, ax = plt.subplots(figsize=(6, 4.5))
+        fig, ax = plt.subplots(figsize=(COLWIDTH_IN, COLWIDTH_IN * 0.78))
 
         for mode, pt in results.items():
             y_vals = pt.avg_time_s if use_avg else pt.wall_time_s
@@ -282,7 +322,7 @@ def plot_scaling(
                 alpha=0.9,
             )
 
-        ax.set_xlabel("# qubits")
+        ax.set_xlabel("n Qubits")
         ylabel = "Avg time per run (ms)" if use_avg else "Total wall time (ms)"
         ax.set_ylabel(ylabel)
         if log_y:
@@ -295,8 +335,7 @@ def plot_scaling(
 
         plt.tight_layout()
         if output_path is not None:
-            fig.savefig(str(output_path))
-            logger.info("Figure saved to %s", output_path)
+            _save_figure(fig, output_path)
         if show:
             plt.show()
         plt.close(fig)
@@ -305,7 +344,6 @@ def plot_scaling(
 def plot_per_mode(
     results: Dict[str, ProfilingTimings],
     *,
-    title: str = "JAQSI Profiling — Per Mode",
     output_path: Optional[str | Path] = None,
     show: bool = False,
     log_y: bool = True,
@@ -319,10 +357,8 @@ def plot_per_mode(
     ----------
     results : dict
         Mapping of mode → :class:`ProfilingTimings`.
-    title : str
-        Figure suptitle.
     output_path : str or Path, optional
-        If given the figure is saved to this path (PDF recommended).
+        If given, the figure is written to this base path as PGF and PNG.
     show : bool
         Call ``plt.show()`` after rendering.
     log_y : bool
@@ -335,7 +371,10 @@ def plot_per_mode(
 
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
-            1, n_modes, figsize=(4.5 * n_modes, 4), squeeze=False
+            1,
+            n_modes,
+            figsize=(TEXTWIDTH_IN, max(2.6, TEXTWIDTH_IN / n_modes * 0.8)),
+            squeeze=False,
         )
         axes = axes.flatten()
 
@@ -352,7 +391,7 @@ def plot_per_mode(
                 markersize=6,
                 alpha=0.9,
             )
-            ax.set_xlabel("# qubits")
+            ax.set_xlabel("n Qubits")
             ax.set_ylabel("Avg time per run (ms)")
             ax.set_title(mode)
             if log_y:
@@ -360,12 +399,10 @@ def plot_per_mode(
             _set_integer_xticks(ax, pt.qubit_sizes)
             ax.grid(True, linestyle=":", alpha=0.5)
 
-        fig.suptitle(title, fontsize=13)
         plt.tight_layout()
 
         if output_path is not None:
-            fig.savefig(str(output_path))
-            logger.info("Figure saved to %s", output_path)
+            _save_figure(fig, output_path)
         if show:
             plt.show()
         plt.close(fig)
@@ -394,7 +431,7 @@ def plot_mode_comparison_bar(
     title : str, optional
         Figure title.
     output_path : str or Path, optional
-        If given the figure is saved to this path (PDF recommended).
+        If given, the figure is written to this base path as PGF and PNG.
     show : bool
         Call ``plt.show()`` after rendering.
     """
@@ -423,7 +460,7 @@ def plot_mode_comparison_bar(
         return
 
     with plt.rc_context(PLOT_RC):
-        fig, ax = plt.subplots(figsize=(5, 4))
+        fig, ax = plt.subplots(figsize=(COLWIDTH_IN, COLWIDTH_IN * 0.85))
 
         colors = [_mode_color(m) for m in modes]
         x_pos = list(range(len(modes)))
@@ -451,8 +488,7 @@ def plot_mode_comparison_bar(
 
         plt.tight_layout()
         if output_path is not None:
-            fig.savefig(str(output_path))
-            logger.info("Figure saved to %s", output_path)
+            _save_figure(fig, output_path)
         if show:
             plt.show()
         plt.close(fig)
@@ -481,7 +517,7 @@ def plot_memory(
     title : str
         Figure suptitle.
     output_path : str or Path, optional
-        If given the figure is saved to this path (PDF recommended).
+        If given, the figure is written to this base path as PGF and PNG.
     show : bool
         Call ``plt.show()`` after rendering.
     log_y : bool
@@ -500,7 +536,7 @@ def plot_memory(
         return
 
     with plt.rc_context(PLOT_RC):
-        fig, ax = plt.subplots(figsize=(6, 4.5))
+        fig, ax = plt.subplots(figsize=(COLWIDTH_IN, COLWIDTH_IN * 0.78))
 
         for mode, pt in results.items():
             mem_mb = [b / (1024 * 1024) for b in pt.jax_peak_mem_bytes]
@@ -521,7 +557,7 @@ def plot_memory(
                 alpha=0.9,
             )
 
-        ax.set_xlabel("# qubits")
+        ax.set_xlabel("n Qubits")
         ax.set_ylabel("Peak JAX memory (MB)")
         if log_y:
             ax.set_yscale("log")
@@ -533,8 +569,7 @@ def plot_memory(
 
         plt.tight_layout()
         if output_path is not None:
-            fig.savefig(str(output_path))
-            logger.info("Figure saved to %s", output_path)
+            _save_figure(fig, output_path)
         if show:
             plt.show()
         plt.close(fig)
