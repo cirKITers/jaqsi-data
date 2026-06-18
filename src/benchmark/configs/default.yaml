@@ -4,12 +4,12 @@ warmup: true
 precision: 1.0e-8
 
 # Use performance-optimized simulator configurations (default = fallback configs)
-optimal_config: false
+optimal_config: true
 
 # Qubit sweep range (inclusive)
 qubits:
   min: 2
-  max: 16
+  max: 10
 
 # Execution settings
 execution:
