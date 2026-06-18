@@ -100,17 +100,23 @@ class TestComputeRatio:
 class TestPlotting:
     def test_plot_ratio_saves_file(self, sample_csv: Path, tmp_path: Path):
         results = load_results(sample_csv)
-        out = tmp_path / "ratio.pdf"
+        out = tmp_path / "ratio.pgf"
         plot_ratio(results, output_path=out)
-        assert out.exists()
-        assert out.stat().st_size > 0
+        # PNG is always written; PDF is intentionally dropped.
+        png = out.with_suffix(".png")
+        assert png.exists()
+        assert png.stat().st_size > 0
+        assert not out.with_suffix(".pdf").exists()
 
     def test_plot_absolute_saves_file(self, sample_csv: Path, tmp_path: Path):
         results = load_results(sample_csv)
-        out = tmp_path / "absolute.pdf"
+        out = tmp_path / "absolute.pgf"
         plot_absolute(results, output_path=out)
-        assert out.exists()
-        assert out.stat().st_size > 0
+        # PNG is always written; PDF is intentionally dropped.
+        png = out.with_suffix(".png")
+        assert png.exists()
+        assert png.stat().st_size > 0
+        assert not out.with_suffix(".pdf").exists()
 
     def test_plot_ratio_empty_results(self, tmp_path: Path):
         """Plotting with no data should not crash."""
