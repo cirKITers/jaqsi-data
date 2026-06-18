@@ -1215,7 +1215,7 @@ requires-dist = [
     { name = "qibojit", marker = "python_full_version < '3.14'", specifier = ">=0.1" },
     { name = "qiskit", specifier = ">=1.0" },
     { name = "qiskit-aer", specifier = ">=0.17" },
-    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=d493adc2d8712f99b401e1f1c0dbd3041c6012da" },
+    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=f94ad21120dfb19e9a1ba7803e1239961dd75ec6" },
     { name = "qulacs", specifier = ">=0.6" },
     { name = "tensorboard-plugin-profile", specifier = ">=2.17" },
 ]
@@ -2601,8 +2601,8 @@ wheels = [
 
 [[package]]
 name = "qml-essentials"
-version = "0.2.1"
-source = { git = "https://github.com/cirKITers/qml-essentials?rev=d493adc2d8712f99b401e1f1c0dbd3041c6012da#d493adc2d8712f99b401e1f1c0dbd3041c6012da" }
+version = "0.2.2"
+source = { git = "https://github.com/cirKITers/qml-essentials?rev=f94ad21120dfb19e9a1ba7803e1239961dd75ec6#f94ad21120dfb19e9a1ba7803e1239961dd75ec6" }
 dependencies = [
     { name = "diffrax" },
     { name = "jax" },
