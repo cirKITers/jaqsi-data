@@ -123,22 +123,53 @@ def _compute_ratio_with_error(
 # Colors & styling
 # ------------------------------------------------------------------
 
-# Per-simulator colours — visually distinct and colourblind-friendly
-SIMULATOR_COLORS: Dict[str, str] = {
-    "jaqsi": "#1f77b4",      # blue
-    "pennylane": "#ff7f0e",  # orange
-    "qiskit": "#2ca02c",     # green
-    "qibo": "#d62728",       # red
+# Two-column text width (inches) of the IEEE conference paper. Figures are
+# sized to this width so they drop into ``figure*`` at their natural scale.
+TEXTWIDTH_IN = 7.16
+
+# Paper-grade rcParams: serif fonts, subtle grid, no top/right spines, and a
+# PGF backend configured for the pdflatex build of the paper.
+PLOT_RC = {
+    "font.family": "serif",
+    "font.serif": ["Times", "DejaVu Serif"],
+    "mathtext.fontset": "cm",
+    "font.size": 9,
+    "axes.labelsize": 9,
+    "axes.titlesize": 9,
+    "legend.fontsize": 8,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
+    "axes.linewidth": 0.8,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.grid": True,
+    "grid.linestyle": ":",
+    "grid.linewidth": 0.6,
+    "grid.alpha": 0.5,
+    "legend.frameon": False,
+    "lines.linewidth": 1.5,
+    "lines.markersize": 4,
+    "figure.dpi": 150,
+    "savefig.dpi": 300,
+    "savefig.bbox": "tight",
+    "pgf.texsystem": "pdflatex",
+    "pgf.rcfonts": False,
+    "pgf.preamble": r"\usepackage[T1]{fontenc}\usepackage[utf8]{inputenc}",
 }
 
-# Fallback palette for simulators not listed above
+# Per-simulator colours — Paul Tol "bright" qualitative scheme (colourblind safe)
+SIMULATOR_COLORS: Dict[str, str] = {
+    "jaqsi": "#4477AA",      # blue
+    "pennylane": "#EE6677",  # red
+    "qiskit": "#228833",     # green
+    "qibo": "#AA3377",       # purple
+}
+
+# Fallback palette for simulators not listed above (remaining Tol bright colours)
 _EXTRA_COLORS = [
-    "#9467bd",  # purple
-    "#8c564b",  # brown
-    "#e377c2",  # pink
-    "#7f7f7f",  # grey
-    "#bcbd22",  # olive
-    "#17becf",  # cyan
+    "#66CCEE",  # cyan
+    "#CCBB44",  # yellow
+    "#BBBBBB",  # grey
 ]
 
 _extra_idx = 0
@@ -151,6 +182,53 @@ def _sim_color(sim_name: str) -> str:
         SIMULATOR_COLORS[sim_name] = _EXTRA_COLORS[_extra_idx % len(_EXTRA_COLORS)]
         _extra_idx += 1
     return SIMULATOR_COLORS[sim_name]
+
+
+def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
+    """Write *fig* as PGF (for the paper) and PNG (for quick inspection).
+
+    PDF output is intentionally dropped. PGF is attempted after the PNG so a
+    missing LaTeX toolchain (e.g. on a headless compute node) degrades to a
+    PNG-only result with a warning instead of raising.
+    """
+    base = Path(output_path).with_suffix("")
+    png_path = base.with_suffix(".png")
+    pgf_path = base.with_suffix(".pgf")
+    fig.savefig(str(png_path))
+    try:
+        fig.savefig(str(pgf_path))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "PGF export failed for %s (LaTeX required): %s", pgf_path, exc
+        )
+        logger.info("Figure saved to %s", png_path)
+    else:
+        logger.info("Figure saved to %s and %s", pgf_path, png_path)
+
+
+def _add_shared_legend(fig: plt.Figure, axes) -> None:
+    """Add one de-duplicated legend below the subplots.
+
+    All subplots share the same simulators, so a single horizontal legend at
+    the bottom is cleaner than per-axis legends overlapping the data.
+    """
+    handles: list = []
+    labels: list = []
+    seen: set = set()
+    for ax in axes:
+        for handle, label in zip(*ax.get_legend_handles_labels()):
+            if label not in seen:
+                seen.add(label)
+                handles.append(handle)
+                labels.append(label)
+    if handles:
+        fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            ncol=min(len(labels), 6),
+            bbox_to_anchor=(0.5, 0.0),
+        )
 
 
 def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
@@ -170,7 +248,6 @@ def plot_ratio(
     results: Dict[str, ModeResults],
     *,
     reference: str = REFERENCE_SIMULATOR,
-    title_suffix: str = "",
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
@@ -194,64 +271,62 @@ def plot_ratio(
         logger.warning("No non-reference simulators to plot ratios for.")
         return
 
-    fig, axes = plt.subplots(1, n_modes, figsize=(5 * n_modes, 5), squeeze=False)
-    axes = axes.flatten()
+    height = max(2.6, TEXTWIDTH_IN / n_modes * 0.8)
+    with plt.rc_context(PLOT_RC):
+        fig, axes = plt.subplots(
+            1, n_modes, figsize=(TEXTWIDTH_IN, height),
+            sharey=True, squeeze=False,
+        )
+        axes = axes.flatten()
 
-    for ax, (mode, mr) in zip(axes, results.items()):
-        if reference not in mr.simulators:
-            continue
-        ref_st = mr.simulators[reference]
-
-        for other_sim in other_sims:
-            if other_sim not in mr.simulators:
+        for ax, (mode, mr) in zip(axes, results.items()):
+            if reference not in mr.simulators:
                 continue
-            oth_st = mr.simulators[other_sim]
-            ratios, errors = _compute_ratio_with_error(
-                ref_st.mean_ms, ref_st.std_ms,
-                oth_st.mean_ms, oth_st.std_ms,
-            )
-            ax.errorbar(
-                mr.qubit_sizes,
-                ratios,
-                yerr=errors,
-                label=other_sim,
-                color=_sim_color(other_sim),
-                linestyle="-",
-                marker="o",
-                linewidth=2,
-                capsize=4,
-                capthick=1.5,
-                elinewidth=1.2,
-                alpha=0.85,
-            )
+            ref_st = mr.simulators[reference]
 
-        ax.axhline(1.0, color="gray", linestyle=":", linewidth=2)
-        ax.set_xlabel("# qubits")
-        ax.set_ylabel(f"Time ratio  vs {reference}")
-        ax.set_title(mode)
-        ax.set_yscale("log")
-        _set_integer_xticks(ax, mr.qubit_sizes)
-        ax.legend(fontsize=8)
-        ax.grid(True, linestyle=":", alpha=0.6)
+            for other_sim in other_sims:
+                if other_sim not in mr.simulators:
+                    continue
+                oth_st = mr.simulators[other_sim]
+                ratios, errors = _compute_ratio_with_error(
+                    ref_st.mean_ms, ref_st.std_ms,
+                    oth_st.mean_ms, oth_st.std_ms,
+                )
+                ax.errorbar(
+                    mr.qubit_sizes,
+                    ratios,
+                    yerr=errors,
+                    label=other_sim.capitalize(),
+                    color=_sim_color(other_sim),
+                    linestyle="-",
+                    marker="o",
+                    capsize=3,
+                    capthick=1.0,
+                    elinewidth=1.0,
+                    alpha=0.9,
+                )
 
-    suptitle = f"Time Ratio vs {reference}"
-    if title_suffix:
-        suptitle += f" ({title_suffix})"
-    fig.suptitle(suptitle, fontsize=13)
-    plt.tight_layout()
+            ax.axhline(1.0, color="0.4", linestyle="--", linewidth=1.0)
+            ax.set_xlabel("n Qubits")
+            ax.set_title(mode.capitalize())
+            ax.set_yscale("log")
+            _set_integer_xticks(ax, mr.qubit_sizes)
+            ax.grid(True, linestyle=":", alpha=0.5)
 
-    if output_path is not None:
-        fig.savefig(str(output_path), dpi=150)
-        logger.info(f"Figure saved to {output_path}")
-    if show:
-        plt.show()
-    plt.close(fig)
+        axes[0].set_ylabel(f"Time ratio vs {reference.capitalize()}")
+        fig.tight_layout(rect=(0, 0.08, 1, 1))
+        _add_shared_legend(fig, axes)
+
+        if output_path is not None:
+            _save_figure(fig, output_path)
+        if show:
+            plt.show()
+        plt.close(fig)
 
 
 def plot_absolute(
     results: Dict[str, ModeResults],
     *,
-    title_suffix: str = "",
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
@@ -265,44 +340,43 @@ def plot_absolute(
         logger.warning("No results to plot.")
         return
 
-    fig, axes = plt.subplots(1, n_modes, figsize=(5 * n_modes, 5), squeeze=False)
-    axes = axes.flatten()
+    height = max(2.6, TEXTWIDTH_IN / n_modes * 0.8)
+    with plt.rc_context(PLOT_RC):
+        fig, axes = plt.subplots(
+            1, n_modes, figsize=(TEXTWIDTH_IN, height),
+            sharey=True, squeeze=False,
+        )
+        axes = axes.flatten()
 
-    for ax, (mode, mr) in zip(axes, results.items()):
-        for sim_name, st in mr.simulators.items():
-            ax.errorbar(
-                st.qubit_sizes,
-                st.mean_ms,
-                yerr=st.std_ms,
-                label=sim_name,
-                color=_sim_color(sim_name),
-                linestyle="-",
-                marker="o",
-                linewidth=2,
-                capsize=3,
-                alpha=0.85,
-            )
+        for ax, (mode, mr) in zip(axes, results.items()):
+            for sim_name, st in mr.simulators.items():
+                ax.errorbar(
+                    st.qubit_sizes,
+                    st.mean_ms,
+                    yerr=st.std_ms,
+                    label=sim_name.capitalize(),
+                    color=_sim_color(sim_name),
+                    linestyle="-",
+                    marker="o",
+                    capsize=3,
+                    alpha=0.9,
+                )
 
-        ax.set_xlabel("# qubits")
-        ax.set_ylabel("Time (ms)")
-        ax.set_title(mode)
-        ax.set_yscale("log")
-        _set_integer_xticks(ax, mr.qubit_sizes)
-        ax.legend(fontsize=8)
-        ax.grid(True, linestyle=":", alpha=0.6)
+            ax.set_xlabel("n Qubits")
+            ax.set_title(mode.capitalize())
+            ax.set_yscale("log")
+            _set_integer_xticks(ax, mr.qubit_sizes)
+            ax.grid(True, linestyle=":", alpha=0.5)
 
-    suptitle = "Absolute Timings"
-    if title_suffix:
-        suptitle += f" ({title_suffix})"
-    fig.suptitle(suptitle, fontsize=13)
-    plt.tight_layout()
+        axes[0].set_ylabel("Time (ms)")
+        fig.tight_layout(rect=(0, 0.08, 1, 1))
+        _add_shared_legend(fig, axes)
 
-    if output_path is not None:
-        fig.savefig(str(output_path), dpi=150)
-        logger.info(f"Figure saved to {output_path}")
-    if show:
-        plt.show()
-    plt.close(fig)
+        if output_path is not None:
+            _save_figure(fig, output_path)
+        if show:
+            plt.show()
+        plt.close(fig)
 
 
 def print_summary(results: Dict[str, ModeResults]) -> None:

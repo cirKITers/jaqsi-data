@@ -73,12 +73,12 @@ def main(argv: list[str] | None = None) -> None:
         stem = csv_path.stem  # e.g. "benchmarks-20250101"
         plot_ratio(
             results,
-            output_path=csv_path.parent / f"{stem}-ratio.pdf",
+            output_path=csv_path.parent / f"{stem}-ratio.pgf",
             show=args.show,
         )
         plot_absolute(
             results,
-            output_path=csv_path.parent / f"{stem}-absolute.pdf",
+            output_path=csv_path.parent / f"{stem}-absolute.pgf",
             show=args.show,
         )
         return
@@ -99,20 +99,14 @@ def main(argv: list[str] | None = None) -> None:
     if not args.no_plot:
         results = load_results(csv_path)
         print_summary(results)
-        title_suffix = (
-            f"avg {cfg.execution.n_iters} iters, "
-            f"batch {cfg.execution.batch_size}"
-        )
         plot_ratio(
             results,
-            title_suffix=title_suffix,
-            output_path=csv_path.parent / f"{csv_path.stem}-ratio.pdf",
+            output_path=csv_path.parent / f"{csv_path.stem}-ratio.pgf",
             show=args.show,
         )
         plot_absolute(
             results,
-            title_suffix=title_suffix,
-            output_path=csv_path.parent / f"{csv_path.stem}-absolute.pdf",
+            output_path=csv_path.parent / f"{csv_path.stem}-absolute.pgf",
             show=args.show,
         )
 
