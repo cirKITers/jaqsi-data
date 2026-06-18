@@ -1,0 +1,6 @@
+n_qubits,mode,simulator,mean_ms,std_ms,batch_size,n_iters
+2,probs,jaqsi,0.367275,0.116661,1,50
+2,probs,pennylane,12.633954,2.079516,1,50
+2,probs,qiskit,0.925225,0.111726,1,50
+2,probs,qibo,0.578079,0.048876,1,50
+2,probs,qulacs,0.422486,0.031085,1,50

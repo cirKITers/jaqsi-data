@@ -1,4 +1,4 @@
-results/
+results/*.pdf
 *.md
 !README.md
 # Created by https://www.toptal.com/developers/gitignore/api/python
