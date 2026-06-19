@@ -163,25 +163,8 @@ SIMULATOR_COLORS: Dict[str, str] = {
     "pennylane": "#EE6677",  # red
     "qiskit": "#228833",     # green
     "qibo": "#AA3377",       # purple
+    "qulacs": "#66CCEE",     # cyan
 }
-
-# Fallback palette for simulators not listed above (remaining Tol bright colours)
-_EXTRA_COLORS = [
-    "#66CCEE",  # cyan
-    "#CCBB44",  # yellow
-    "#BBBBBB",  # grey
-]
-
-_extra_idx = 0
-
-
-def _sim_color(sim_name: str) -> str:
-    """Return a consistent colour for *sim_name*."""
-    global _extra_idx  # noqa: PLW0603
-    if sim_name not in SIMULATOR_COLORS:
-        SIMULATOR_COLORS[sim_name] = _EXTRA_COLORS[_extra_idx % len(_EXTRA_COLORS)]
-        _extra_idx += 1
-    return SIMULATOR_COLORS[sim_name]
 
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
@@ -297,7 +280,7 @@ def plot_ratio(
                     ratios,
                     yerr=errors,
                     label=other_sim.capitalize(),
-                    color=_sim_color(other_sim),
+                    color=SIMULATOR_COLORS[other_sim],
                     linestyle="-",
                     marker="o",
                     capsize=3,
@@ -355,7 +338,7 @@ def plot_absolute(
                     st.mean_ms,
                     yerr=st.std_ms,
                     label=sim_name.capitalize(),
-                    color=_sim_color(sim_name),
+                    color=SIMULATOR_COLORS[sim_name],
                     linestyle="-",
                     marker="o",
                     capsize=3,

@@ -5,23 +5,22 @@ Concrete simulators are imported lazily to avoid hard failures when
 optional backends (e.g. ``qml_essentials``, ``qiskit``) are not installed.
 """
 
-__all__ = ["JaqsiBenchmark", "PennylaneBenchmark", "QiskitBenchmark", "QiboBenchmark", "QulacsBenchmark"]
+import importlib
+
+# Maps the public adapter name to the submodule that defines it.
+_MODULES = {
+    "JaqsiBenchmark": "jaqsi_sim",
+    "PennylaneBenchmark": "pennylane_sim",
+    "QiskitBenchmark": "qiskit_sim",
+    "QiboBenchmark": "qibo_sim",
+    "QulacsBenchmark": "qulacs_sim",
+}
+
+__all__ = list(_MODULES)
 
 
 def __getattr__(name: str):
-    if name == "JaqsiBenchmark":
-        from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
-        return JaqsiBenchmark
-    if name == "PennylaneBenchmark":
-        from benchmark.simulators.pennylane_sim import PennylaneBenchmark
-        return PennylaneBenchmark
-    if name == "QiskitBenchmark":
-        from benchmark.simulators.qiskit_sim import QiskitBenchmark
-        return QiskitBenchmark
-    if name == "QiboBenchmark":
-        from benchmark.simulators.qibo_sim import QiboBenchmark
-        return QiboBenchmark
-    if name == "QulacsBenchmark":
-        from benchmark.simulators.qulacs_sim import QulacsBenchmark
-        return QulacsBenchmark
+    if name in _MODULES:
+        module = importlib.import_module(f"benchmark.simulators.{_MODULES[name]}")
+        return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
