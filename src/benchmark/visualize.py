@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import matplotlib.ticker
 
+from benchmark.style import PLOT_RC, SIMULATOR_COLORS, style_axes
+
 logger = logging.getLogger(__name__)
 
 # Reference simulator used as denominator in ratio plots
@@ -127,45 +129,6 @@ def _compute_ratio_with_error(
 # sized to this width so they drop into ``figure*`` at their natural scale.
 TEXTWIDTH_IN = 7.16
 
-# Paper-grade rcParams: serif fonts, subtle grid, no top/right spines, and a
-# PGF backend configured for the pdflatex build of the paper.
-PLOT_RC = {
-    "font.family": "serif",
-    "font.serif": ["Times", "DejaVu Serif"],
-    "mathtext.fontset": "cm",
-    "font.size": 9,
-    "axes.labelsize": 9,
-    "axes.titlesize": 9,
-    "legend.fontsize": 8,
-    "xtick.labelsize": 8,
-    "ytick.labelsize": 8,
-    "axes.linewidth": 0.8,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.grid": True,
-    "grid.linestyle": ":",
-    "grid.linewidth": 0.6,
-    "grid.alpha": 0.5,
-    "legend.frameon": False,
-    "lines.linewidth": 1.5,
-    "lines.markersize": 4,
-    "figure.dpi": 150,
-    "savefig.dpi": 300,
-    "savefig.bbox": "tight",
-    "pgf.texsystem": "pdflatex",
-    "pgf.rcfonts": False,
-    "pgf.preamble": r"\usepackage[T1]{fontenc}\usepackage[utf8]{inputenc}",
-}
-
-# Per-simulator colours — Paul Tol "bright" qualitative scheme (colourblind safe)
-SIMULATOR_COLORS: Dict[str, str] = {
-    "jaqsi": "#4477AA",      # blue
-    "pennylane": "#EE6677",  # red
-    "qiskit": "#228833",     # green
-    "qibo": "#AA3377",       # purple
-    "qulacs": "#66CCEE",     # cyan
-}
-
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
     """Write *fig* as PGF (for the paper) and PNG (for quick inspection).
@@ -190,10 +153,10 @@ def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
 
 
 def _add_shared_legend(fig: plt.Figure, axes) -> None:
-    """Add one de-duplicated legend below the subplots.
+    """Add one de-duplicated legend above the subplots.
 
-    All subplots share the same simulators, so a single horizontal legend at
-    the bottom is cleaner than per-axis legends overlapping the data.
+    All subplots share the same simulators, so a single horizontal legend on
+    top is cleaner than per-axis legends overlapping the data.
     """
     handles: list = []
     labels: list = []
@@ -208,9 +171,9 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
         fig.legend(
             handles,
             labels,
-            loc="lower center",
+            loc="upper center",
             ncol=min(len(labels), 6),
-            bbox_to_anchor=(0.5, 0.0),
+            bbox_to_anchor=(0.5, 1.0),
         )
 
 
@@ -294,10 +257,10 @@ def plot_ratio(
             ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
-            ax.grid(True, linestyle=":", alpha=0.5)
+            style_axes(ax)
 
         axes[0].set_ylabel(f"Time ratio vs {reference.capitalize()}")
-        fig.tight_layout(rect=(0, 0.08, 1, 1))
+        fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
@@ -349,10 +312,10 @@ def plot_absolute(
             ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
-            ax.grid(True, linestyle=":", alpha=0.5)
+            style_axes(ax)
 
         axes[0].set_ylabel("Time (ms)")
-        fig.tight_layout(rect=(0, 0.08, 1, 1))
+        fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
