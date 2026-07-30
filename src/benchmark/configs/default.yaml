@@ -18,10 +18,10 @@ execution:
 
 # Which measurement modes to benchmark
 modes:
-  - probs
   - expval
   - state
   - density
+  # - probs
 
 # Which simulators to run (subset of: jaqsi, pennylane, qiskit, qibo, qulacs)
 simulators:
