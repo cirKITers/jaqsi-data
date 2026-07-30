@@ -30,6 +30,12 @@ SIMULATOR_COLORS: Dict[str, str] = {
     "qiskit": "#009371",     # teal
     "qibo": "#ed665a",       # salmon
     "qulacs": "#1f78b4",     # blue
+    # Pulse-level adapters reuse each framework's colour; they are plotted
+    # from separate result files, so the two levels never share a figure.
+    "jaqsi_pulse": "#002D4C",      # navy
+    "pennylane_pulse": "#E69F00",  # orange
+    "qutip_pulse": "#beaed4",      # purple
+    "dynamiqs_pulse": "#999999",   # grey
 }
 
 # theme_bw rcParams: serif fonts, white panel with a full grey border, solid

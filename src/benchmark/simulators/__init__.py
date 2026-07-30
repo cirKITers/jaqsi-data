@@ -14,6 +14,10 @@ _MODULES = {
     "QiskitBenchmark": "qiskit_sim",
     "QiboBenchmark": "qibo_sim",
     "QulacsBenchmark": "qulacs_sim",
+    "JaqsiPulseBenchmark": "jaqsi_pulse_sim",
+    "PennylanePulseBenchmark": "pennylane_pulse_sim",
+    "QutipPulseBenchmark": "qutip_pulse_sim",
+    "DynamiqsPulseBenchmark": "dynamiqs_pulse_sim",
 }
 
 __all__ = list(_MODULES)

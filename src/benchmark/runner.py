@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import importlib
 import logging
 import os
 from pathlib import Path
@@ -26,6 +27,31 @@ CSV_COLUMNS = [
     "batch_size",
     "n_iters",
 ]
+
+# Maps a simulator name to the module and class implementing its adapter.
+# Only the requested adapters are imported, so a missing optional backend does
+# not break runs that do not use it.
+SIMULATOR_REGISTRY: Dict[str, Tuple[str, str]] = {
+    "jaqsi": ("jaqsi_sim", "JaqsiBenchmark"),
+    "pennylane": ("pennylane_sim", "PennylaneBenchmark"),
+    "qiskit": ("qiskit_sim", "QiskitBenchmark"),
+    "qibo": ("qibo_sim", "QiboBenchmark"),
+    "qulacs": ("qulacs_sim", "QulacsBenchmark"),
+    "jaqsi_pulse": ("jaqsi_pulse_sim", "JaqsiPulseBenchmark"),
+    "pennylane_pulse": ("pennylane_pulse_sim", "PennylanePulseBenchmark"),
+    "qutip_pulse": ("qutip_pulse_sim", "QutipPulseBenchmark"),
+    "dynamiqs_pulse": ("dynamiqs_pulse_sim", "DynamiqsPulseBenchmark"),
+}
+
+# Reference simulator each simulation level is cross-validated against.  Pulse
+# results carry the ODE solver error and are therefore never compared to the
+# exact gate-level results.
+REFERENCE_BY_LEVEL: Dict[str, str] = {"gate": "jaqsi", "pulse": "jaqsi_pulse"}
+
+
+def _level(simulator: str) -> str:
+    """Return the simulation level (``gate`` or ``pulse``) of *simulator*."""
+    return "pulse" if simulator.endswith("_pulse") else "gate"
 
 
 def _csv_path(cfg: BenchmarkConfig) -> Path:
@@ -124,23 +150,11 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     qubit_sizes = list(range(cfg.qubits.min, cfg.qubits.max + 1))
 
     # Late imports to avoid hard dependency on optional backends at module level
-    from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
-    from benchmark.simulators.pennylane_sim import PennylaneBenchmark
-    from benchmark.simulators.qiskit_sim import QiskitBenchmark
-    from benchmark.simulators.qibo_sim import QiboBenchmark
-    from benchmark.simulators.qulacs_sim import QulacsBenchmark
-
-    _all_simulators: Dict[str, SimulatorBenchmark] = {
-        "jaqsi": JaqsiBenchmark(),
-        "pennylane": PennylaneBenchmark(),
-        "qiskit": QiskitBenchmark(),
-        "qibo": QiboBenchmark(),
-        "qulacs": QulacsBenchmark(),
-    }
-
-    simulators: List[SimulatorBenchmark] = [
-        _all_simulators[name] for name in cfg.simulators
-    ]
+    simulators: List[SimulatorBenchmark] = []
+    for name in cfg.simulators:
+        module_name, class_name = SIMULATOR_REGISTRY[name]
+        module = importlib.import_module(f"benchmark.simulators.{module_name}")
+        simulators.append(getattr(module, class_name)())
 
     for n_qubits in qubit_sizes:
         for mode in cfg.modes:
@@ -192,13 +206,15 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                 completed.add(key)
                 sim_results[sim.name] = result
 
-            # Cross-validate all simulators against jaqsi (reference)
-            if "jaqsi" in sim_results:
+            # Cross-validate each simulation level against its jaqsi reference
+            for level, ref_name in REFERENCE_BY_LEVEL.items():
+                if ref_name not in sim_results:
+                    continue
                 for other_name, other_res in sim_results.items():
-                    if other_name == "jaqsi":
+                    if other_name == ref_name or _level(other_name) != level:
                         continue
                     _validate_results(
-                        sim_results["jaqsi"],
+                        sim_results[ref_name],
                         other_res,
                         cfg.precision,
                     )

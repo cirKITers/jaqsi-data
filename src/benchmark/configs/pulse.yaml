@@ -1,0 +1,44 @@
+# Pulse-level benchmark configuration
+seed: 1000
+warmup: true
+# Pulse results carry the ODE solver error of each backend, so the
+# cross-validation tolerance is set by the solver rather than by machine
+# precision.  Raise this if a larger qubit sweep accumulates more error.
+precision: 1.0e-6
+
+# Use performance-optimized simulator configurations.  For pennylane this
+# integrates the segments with jax.experimental.ode directly instead of going
+# through ParametrizedEvolution, whose per-operation overhead costs about
+# 190 ms per segment and otherwise dominates the whole run.
+optimal_config: true
+
+# Qubit sweep range (inclusive).  The schedule has 21 segments per qubit, each
+# solved sequentially, so the runtime grows faster than in the gate benchmark.
+qubits:
+  min: 2
+  max: 8
+
+# Execution settings
+execution:
+  n_iters: 20
+  batch_size: 1
+
+# Which measurement modes to benchmark
+modes:
+  - expval
+  - state
+  - density
+
+# Which simulators to run (subset of: jaqsi_pulse, pennylane_pulse,
+# qutip_pulse, dynamiqs_pulse)
+simulators:
+  - jaqsi_pulse
+  - pennylane_pulse
+  - qutip_pulse
+  - dynamiqs_pulse
+
+# Output settings
+output:
+  dir: results
+  # Set a fixed identifier to resume a previous run; null generates a timestamp
+  identifier: null

@@ -15,8 +15,11 @@ from benchmark.style import PLOT_RC, SIMULATOR_COLORS, style_axes
 
 logger = logging.getLogger(__name__)
 
-# Reference simulator used as denominator in ratio plots
+# Reference simulators used as denominator in ratio plots, in the order they
+# are picked when none is given.  A pulse-level result file contains only the
+# pulse reference, a gate-level one only the gate reference.
 REFERENCE_SIMULATOR = "jaqsi"
+REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 
 
 # ------------------------------------------------------------------
@@ -190,22 +193,35 @@ def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
 # Plotting
 # ------------------------------------------------------------------
 
+def _pick_reference(results: Dict[str, ModeResults]) -> str:
+    """Return the first reference simulator present in *results*."""
+    present = {s for mr in results.values() for s in mr.simulators}
+    for candidate in REFERENCE_PREFERENCE:
+        if candidate in present:
+            return candidate
+    return REFERENCE_SIMULATOR
+
+
 def plot_ratio(
     results: Dict[str, ModeResults],
     *,
-    reference: str = REFERENCE_SIMULATOR,
+    reference: Optional[str] = None,
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
     """Create a time-ratio plot (other / *reference*).
 
     One subplot per measurement mode; within each subplot every
-    non-reference simulator is drawn with a distinct colour.
+    non-reference simulator is drawn with a distinct colour.  When *reference*
+    is omitted it is taken from the simulators present in *results*.
     """
     n_modes = len(results)
     if n_modes == 0:
         logger.warning("No results to plot.")
         return
+
+    if reference is None:
+        reference = _pick_reference(results)
 
     # Determine which other simulators exist
     other_sims: List[str] = []

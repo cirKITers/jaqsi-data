@@ -29,8 +29,20 @@ class OutputConfig:
     identifier: Optional[str] = None
 
 
-# All available simulator names (used for validation)
-ALL_SIMULATORS: List[str] = ["jaqsi", "pennylane", "qiskit", "qibo", "qulacs"]
+# All available simulator names (used for validation).  Names ending in
+# ``_pulse`` run the circuit at pulse level and are validated against
+# ``jaqsi_pulse`` rather than the gate-level reference.
+ALL_SIMULATORS: List[str] = [
+    "jaqsi",
+    "pennylane",
+    "qiskit",
+    "qibo",
+    "qulacs",
+    "jaqsi_pulse",
+    "pennylane_pulse",
+    "qutip_pulse",
+    "dynamiqs_pulse",
+]
 
 
 @dataclass
