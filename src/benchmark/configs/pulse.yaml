@@ -21,7 +21,7 @@ qubits:
 # Execution settings
 execution:
   n_iters: 20
-  batch_size: 1
+  batch_size: 2
 
 # Which measurement modes to benchmark
 modes:
