@@ -73,10 +73,6 @@ MODE_MARKERS: Dict[str, str] = {
     "density": "D",
 }
 
-# Fallback palette (remaining Tol bright colours)
-_EXTRA_COLORS = ["#66CCEE", "#CCBB44", "#BBBBBB"]
-_extra_idx = 0
-
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
     """Write the figure as PGF (for the paper) and PNG (for quick inspection).
@@ -98,18 +94,6 @@ def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
         logger.info("Figure saved to %s", png_path)
     else:
         logger.info("Figure saved to %s and %s", pgf_path, png_path)
-
-
-def _mode_color(mode: str) -> str:
-    global _extra_idx  # noqa: PLW0603
-    if mode not in MODE_COLORS:
-        MODE_COLORS[mode] = _EXTRA_COLORS[_extra_idx % len(_EXTRA_COLORS)]
-        _extra_idx += 1
-    return MODE_COLORS[mode]
-
-
-def _mode_marker(mode: str) -> str:
-    return MODE_MARKERS.get(mode, "o")
 
 
 def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
@@ -314,8 +298,8 @@ def plot_scaling(
                 pt.qubit_sizes,
                 y_ms,
                 label=mode,
-                color=_mode_color(mode),
-                marker=_mode_marker(mode),
+                color=MODE_COLORS[mode],
+                marker=MODE_MARKERS[mode],
                 linestyle="-",
                 linewidth=2,
                 markersize=6,
@@ -384,8 +368,8 @@ def plot_per_mode(
             ax.plot(
                 pt.qubit_sizes,
                 y_ms,
-                color=_mode_color(mode),
-                marker=_mode_marker(mode),
+                color=MODE_COLORS[mode],
+                marker=MODE_MARKERS[mode],
                 linestyle="-",
                 linewidth=2,
                 markersize=6,
@@ -462,7 +446,7 @@ def plot_mode_comparison_bar(
     with plt.rc_context(PLOT_RC):
         fig, ax = plt.subplots(figsize=(COLWIDTH_IN, COLWIDTH_IN * 0.85))
 
-        colors = [_mode_color(m) for m in modes]
+        colors = [MODE_COLORS[m] for m in modes]
         x_pos = list(range(len(modes)))
 
         bars = ax.bar(x_pos, times_ms, color=colors, alpha=0.85, edgecolor="white")
@@ -549,8 +533,8 @@ def plot_memory(
                 pt.qubit_sizes,
                 mem_mb,
                 label=mode,
-                color=_mode_color(mode),
-                marker=_mode_marker(mode),
+                color=MODE_COLORS[mode],
+                marker=MODE_MARKERS[mode],
                 linestyle="-",
                 linewidth=2,
                 markersize=6,

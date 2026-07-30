@@ -11,10 +11,15 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import matplotlib.ticker
 
+from benchmark.style import PLOT_RC, SIMULATOR_COLORS, style_axes
+
 logger = logging.getLogger(__name__)
 
-# Reference simulator used as denominator in ratio plots
+# Reference simulators used as denominator in ratio plots, in the order they
+# are picked when none is given.  A pulse-level result file contains only the
+# pulse reference, a gate-level one only the gate reference.
 REFERENCE_SIMULATOR = "jaqsi"
+REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 
 
 # ------------------------------------------------------------------
@@ -127,62 +132,6 @@ def _compute_ratio_with_error(
 # sized to this width so they drop into ``figure*`` at their natural scale.
 TEXTWIDTH_IN = 7.16
 
-# Paper-grade rcParams: serif fonts, subtle grid, no top/right spines, and a
-# PGF backend configured for the pdflatex build of the paper.
-PLOT_RC = {
-    "font.family": "serif",
-    "font.serif": ["Times", "DejaVu Serif"],
-    "mathtext.fontset": "cm",
-    "font.size": 9,
-    "axes.labelsize": 9,
-    "axes.titlesize": 9,
-    "legend.fontsize": 8,
-    "xtick.labelsize": 8,
-    "ytick.labelsize": 8,
-    "axes.linewidth": 0.8,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.grid": True,
-    "grid.linestyle": ":",
-    "grid.linewidth": 0.6,
-    "grid.alpha": 0.5,
-    "legend.frameon": False,
-    "lines.linewidth": 1.5,
-    "lines.markersize": 4,
-    "figure.dpi": 150,
-    "savefig.dpi": 300,
-    "savefig.bbox": "tight",
-    "pgf.texsystem": "pdflatex",
-    "pgf.rcfonts": False,
-    "pgf.preamble": r"\usepackage[T1]{fontenc}\usepackage[utf8]{inputenc}",
-}
-
-# Per-simulator colours — Paul Tol "bright" qualitative scheme (colourblind safe)
-SIMULATOR_COLORS: Dict[str, str] = {
-    "jaqsi": "#4477AA",      # blue
-    "pennylane": "#EE6677",  # red
-    "qiskit": "#228833",     # green
-    "qibo": "#AA3377",       # purple
-}
-
-# Fallback palette for simulators not listed above (remaining Tol bright colours)
-_EXTRA_COLORS = [
-    "#66CCEE",  # cyan
-    "#CCBB44",  # yellow
-    "#BBBBBB",  # grey
-]
-
-_extra_idx = 0
-
-
-def _sim_color(sim_name: str) -> str:
-    """Return a consistent colour for *sim_name*."""
-    global _extra_idx  # noqa: PLW0603
-    if sim_name not in SIMULATOR_COLORS:
-        SIMULATOR_COLORS[sim_name] = _EXTRA_COLORS[_extra_idx % len(_EXTRA_COLORS)]
-        _extra_idx += 1
-    return SIMULATOR_COLORS[sim_name]
-
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
     """Write *fig* as PGF (for the paper) and PNG (for quick inspection).
@@ -207,10 +156,10 @@ def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
 
 
 def _add_shared_legend(fig: plt.Figure, axes) -> None:
-    """Add one de-duplicated legend below the subplots.
+    """Add one de-duplicated legend above the subplots.
 
-    All subplots share the same simulators, so a single horizontal legend at
-    the bottom is cleaner than per-axis legends overlapping the data.
+    All subplots share the same simulators, so a single horizontal legend on
+    top is cleaner than per-axis legends overlapping the data.
     """
     handles: list = []
     labels: list = []
@@ -225,9 +174,9 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
         fig.legend(
             handles,
             labels,
-            loc="lower center",
+            loc="upper center",
             ncol=min(len(labels), 6),
-            bbox_to_anchor=(0.5, 0.0),
+            bbox_to_anchor=(0.5, 1.0),
         )
 
 
@@ -244,22 +193,35 @@ def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
 # Plotting
 # ------------------------------------------------------------------
 
+def _pick_reference(results: Dict[str, ModeResults]) -> str:
+    """Return the first reference simulator present in *results*."""
+    present = {s for mr in results.values() for s in mr.simulators}
+    for candidate in REFERENCE_PREFERENCE:
+        if candidate in present:
+            return candidate
+    return REFERENCE_SIMULATOR
+
+
 def plot_ratio(
     results: Dict[str, ModeResults],
     *,
-    reference: str = REFERENCE_SIMULATOR,
+    reference: Optional[str] = None,
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
     """Create a time-ratio plot (other / *reference*).
 
     One subplot per measurement mode; within each subplot every
-    non-reference simulator is drawn with a distinct colour.
+    non-reference simulator is drawn with a distinct colour.  When *reference*
+    is omitted it is taken from the simulators present in *results*.
     """
     n_modes = len(results)
     if n_modes == 0:
         logger.warning("No results to plot.")
         return
+
+    if reference is None:
+        reference = _pick_reference(results)
 
     # Determine which other simulators exist
     other_sims: List[str] = []
@@ -297,7 +259,7 @@ def plot_ratio(
                     ratios,
                     yerr=errors,
                     label=other_sim.capitalize(),
-                    color=_sim_color(other_sim),
+                    color=SIMULATOR_COLORS[other_sim],
                     linestyle="-",
                     marker="o",
                     capsize=3,
@@ -311,10 +273,10 @@ def plot_ratio(
             ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
-            ax.grid(True, linestyle=":", alpha=0.5)
+            style_axes(ax)
 
         axes[0].set_ylabel(f"Time ratio vs {reference.capitalize()}")
-        fig.tight_layout(rect=(0, 0.08, 1, 1))
+        fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
@@ -355,7 +317,7 @@ def plot_absolute(
                     st.mean_ms,
                     yerr=st.std_ms,
                     label=sim_name.capitalize(),
-                    color=_sim_color(sim_name),
+                    color=SIMULATOR_COLORS[sim_name],
                     linestyle="-",
                     marker="o",
                     capsize=3,
@@ -366,10 +328,10 @@ def plot_absolute(
             ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
-            ax.grid(True, linestyle=":", alpha=0.5)
+            style_axes(ax)
 
         axes[0].set_ylabel("Time (ms)")
-        fig.tight_layout(rect=(0, 0.08, 1, 1))
+        fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
         if output_path is not None:

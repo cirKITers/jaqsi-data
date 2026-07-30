@@ -7,6 +7,14 @@ This repo contains code to produce benchmarking and profiling results for [JAQSI
 - [Qibo](https://github.com/qiboteam/qibo) — Open-source framework for quantum simulation (numpy backend)
 - [Qulacs](https://github.com/qulacs/qulacs) — Fast C/C++ quantum circuit simulator with Python interface
 
+JAQSI also simulates at pulse level, which is benchmarked separately against the simulators that offer time-dependent Hamiltonian evolution:
+
+- [PennyLane](https://github.com/PennyLaneAI/pennylane) — `qml.pulse` with `ParametrizedEvolution` on `default.qubit`, or `jax.experimental.ode` directly under `optimal_config`
+- [QuTiP](https://github.com/qutip/qutip) — `sesolve` on a `QobjEvo` Hamiltonian
+- [dynamiqs](https://github.com/dynamiqs/dynamiqs) — `sesolve` with JAX and Diffrax solvers
+
+Qiskit is absent from that list because pulse support was removed in Qiskit 2.0 and the successor package pins `qiskit<=1.3`. Qulacs has no pulse-level interface, and Qibo exposes it only through the Qibolab hardware emulator.
+
 ## Benchmark Circuit
 
 All simulators execute the same parametric circuit:
@@ -15,6 +23,20 @@ All simulators execute the same parametric circuit:
 2. A controlled-RX rotation (`CRX(φ)`) in a ring topology: qubit *i* → qubit *(i+1) mod n*
 
 The circuit is evaluated across four measurement modes: probs, expval, state, and density, and results are cross-validated against JAQSI as the reference.
+
+## Pulse-Level Benchmark Circuit
+
+The pulse-level benchmark runs the same circuit, but every gate is expanded into the sequence of time evolutions $\mathrm{d}U/\mathrm{d}t = -i H(t) U$ that JAQSI's `PulseGates` execute, giving $21n$ segments for $n$ qubits. That schedule is transcribed once in [`src/benchmark/simulators/pulse_model.py`](src/benchmark/simulators/pulse_model.py) and rebuilt from there by each adapter, so all simulators integrate an identical sequence of ODEs rather than their own pulse model.
+
+The transcription covers the shipped JAQSI defaults, i.e. the drag envelope with the rotating-wave approximation enabled, under which the driven rotations evolve under
+
+$$ H(t) = \tfrac{1}{2}\,\Omega(t)\,w\,P, \qquad \Omega(t) = A e^{-t^2/(8\sigma^2)}\left(1 - \frac{\beta t}{2\sigma^2}\right) $$
+
+while the virtual $RZ$, the $CZ$ coupling and the Hadamard correction phase evolve under a constant $H$.
+
+Pulse results carry each backend's ODE solver error, so they are cross-validated against `jaqsi_pulse` at a solver-limited tolerance rather than against the exact gate-level results.
+
+As at gate level, `optimal_config` selects each simulator's performance-optimized configuration. For PennyLane the two configurations differ more than elsewhere: the default path uses `qml.evolve`, whose per-operation overhead costs roughly 190 ms per segment independently of solver tolerance, while the optimized path integrates the same segments with `jax.experimental.ode` (the solver `ParametrizedEvolution` is built on) and applies the resulting local unitaries as gates. Both produce identical results to within $10^{-10}$, and the optimized path is two to three orders of magnitude faster, but it no longer exercises the `qml.pulse` API itself. Set `optimal_config=false` to measure that API as such.
 
 ## Requirements
 
@@ -93,6 +115,14 @@ uv run python -m benchmark 'simulators=[jaqsi,qulacs]'
 uv run python -m benchmark --no-plot
 ```
 
+### Run the pulse-level benchmark
+
+```bash
+uv run python -m benchmark --config src/benchmark/configs/pulse.yaml
+```
+
+The pulse configuration sweeps a smaller qubit range than the gate benchmark, because the schedule expands to $21n$ ODE segments that are solved sequentially.
+
 ## Configuration
 
 The default configuration is located at [`src/benchmark/configs/default.yaml`](src/benchmark/configs/default.yaml):
@@ -112,6 +142,8 @@ The default configuration is located at [`src/benchmark/configs/default.yaml`](s
 | `output.identifier` | `null` | Run identifier (auto-generated timestamp if null) |
 
 Any parameter can be overridden from the command line using dot-notation (e.g. `qubits.max=10`).
+
+The pulse-level configuration at [`src/benchmark/configs/pulse.yaml`](src/benchmark/configs/pulse.yaml) uses the same parameters with `simulators` set to `[jaqsi_pulse, pennylane_pulse, qutip_pulse, dynamiqs_pulse]` and a looser `precision` of `1.0e-6`. Simulator names ending in `_pulse` run at pulse level and are cross-validated against `jaqsi_pulse`; the two levels are never compared against each other.
 
 ## Output
 
@@ -211,14 +243,20 @@ sbatch slurm-job.sh
 │   ├── runner.py            # Benchmark runner with CSV recovery
 │   ├── visualize.py         # Plotting and result aggregation
 │   ├── configs/
-│   │   └── default.yaml     # Default benchmark parameters
+│   │   ├── default.yaml     # Default benchmark parameters
+│   │   └── pulse.yaml       # Pulse-level benchmark parameters
 │   └── simulators/
 │       ├── base.py          # Abstract base class & timing harness
 │       ├── jaqsi_sim.py     # JAQSI adapter (reference)
 │       ├── pennylane_sim.py # PennyLane adapter
 │       ├── qiskit_sim.py   # Qiskit adapter
 │       ├── qibo_sim.py     # Qibo adapter
-│       └── qulacs_sim.py   # Qulacs adapter
+│       ├── qulacs_sim.py   # Qulacs adapter
+│       ├── pulse_model.py           # Pulse schedule transcribed from JAQSI
+│       ├── jaqsi_pulse_sim.py       # JAQSI pulse adapter (pulse reference)
+│       ├── pennylane_pulse_sim.py   # PennyLane pulse adapter
+│       ├── qutip_pulse_sim.py       # QuTiP pulse adapter
+│       └── dynamiqs_pulse_sim.py    # dynamiqs pulse adapter
 ├── src/profiling/
 │   ├── __main__.py          # CLI entry-point (python -m profiling)
 │   ├── config.py            # Profiling configuration dataclass

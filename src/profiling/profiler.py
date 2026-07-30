@@ -82,35 +82,6 @@ class JaqsiProfiler:
             self._generate_plots(output_dir)
         return self._results
 
-    def run_single(
-        self,
-        mode: Mode,
-        n_qubits: int,
-        output_dir: str | Path | None = None,
-    ) -> dict:
-        """Profile a single (mode, qubit_count) combination.
-
-        Parameters
-        ----------
-        mode : Mode
-            One of ``"probs"``, ``"expval"``, ``"state"``, ``"density"``.
-        n_qubits : int
-            Number of qubits.
-        output_dir : str or Path, optional
-            Directory for the trace files.  Defaults to
-            ``self.config.output_dir``.
-        """
-        output_dir = Path(output_dir or self.config.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        result = self._profile_combination(mode, n_qubits, output_dir)
-        self._results.append(result)
-        return result
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     # ------------------------------------------------------------------
     # Memory helpers
     # ------------------------------------------------------------------

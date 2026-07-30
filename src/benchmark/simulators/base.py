@@ -15,6 +15,23 @@ import numpy as np
 Mode = Literal["probs", "expval", "state", "density"]
 
 
+def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
+    """Return the permutation mapping little-endian to big-endian basis order.
+
+    Little-endian simulators (Qiskit, Qulacs) label qubit 0 as the
+    least-significant bit, so basis index $b_{n-1}\\dots b_1 b_0$ corresponds
+    to $b_0 b_1 \\dots b_{n-1}$ in the big-endian convention used by JAQSI,
+    PennyLane and Qibo. The returned array re-sorts a length-$2^n$ vector from
+    little-endian to big-endian order.
+    """
+    N = 1 << n_qubits
+    indices = np.zeros(N, dtype=int)
+    for i in range(N):
+        rev = int(f"{i:0{n_qubits}b}"[::-1], 2)
+        indices[rev] = i
+    return indices
+
+
 @dataclass
 class BenchmarkResult:
     """Container for a single benchmark measurement."""

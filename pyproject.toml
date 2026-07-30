@@ -15,7 +15,8 @@ dependencies = [
     "pennylane>=0.44.1",
     "qulacs>=0.6",
     "psutil>=5.9",
-    "tensorboard-plugin-profile>=2.17",
+    "qutip>=5.0",
+    "dynamiqs",
 ]
 
 [build-system]
@@ -36,6 +37,10 @@ testpaths = ["tests"]
 
 [tool.uv.sources]
 qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "f94ad21120dfb19e9a1ba7803e1239961dd75ec6" }
+# The dynamiqs release on PyPI (0.3.4) caps jax<0.7, which conflicts with
+# qml-essentials.  The relaxed bound (jax>=0.4.36, !=0.7.0, !=0.7.1) only
+# exists on the development branch, so pin a commit from there.
+dynamiqs = { git = "https://github.com/dynamiqs/dynamiqs", rev = "8119714466d310621b1752f6874725f45803371c" }
 
 [tool.uv]
 required-environments = [

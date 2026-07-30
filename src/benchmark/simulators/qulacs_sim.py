@@ -15,25 +15,7 @@ from qulacs import DensityMatrix, QuantumCircuit, QuantumState
 from qulacs.circuit import QuantumCircuitOptimizer
 from qulacs.gate import DenseMatrix
 
-from benchmark.simulators.base import SimulatorBenchmark, Mode
-
-
-def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
-    """Return an index array that maps Qulacs' little-endian basis order
-    to big-endian order (used by JAQSI, PennyLane, Qibo).
-
-    Qulacs labels qubit 0 as the *least*-significant bit, so basis state
-    index ``b_{n-1}\u2026b_1 b_0`` in Qulacs corresponds to
-    ``b_0 b_1 \u2026 b_{n-1}`` in big-endian convention.  This function
-    returns a permutation that re-sorts a length-2**n vector from
-    little-endian to big-endian.
-    """
-    N = 1 << n_qubits
-    indices = np.zeros(N, dtype=int)
-    for i in range(N):
-        rev = int(f"{i:0{n_qubits}b}"[::-1], 2)
-        indices[rev] = i
-    return indices
+from benchmark.simulators.base import SimulatorBenchmark, Mode, _endian_reverse_indices
 
 
 def _rx_matrix(angle: float) -> np.ndarray:
