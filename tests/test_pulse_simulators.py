@@ -1,9 +1,12 @@
 """Cross-validation tests for the pulse-level simulator adapters.
 
 Every pulse adapter integrates the same schedule, so all of them are compared
-against jaqsi_pulse.  The tolerance reflects the accumulated ODE solver error
-rather than machine precision, and the qubit counts are kept small because
-pennylane spends roughly 190 ms on each of the 21 segments per qubit.
+against jaqsi_pulse, in both the default and the optimized configuration: the
+two differ in the dimension of the integrated ODE and are benchmarked
+separately, so both have to reproduce the reference.  The tolerance reflects
+the accumulated ODE solver error rather than machine precision, and the qubit
+counts are kept small because pennylane spends roughly 190 ms on each of the
+21 segments per qubit.
 """
 
 from __future__ import annotations
@@ -54,11 +57,12 @@ def reference():
 class TestPulseCrossValidation:
     """Compare every pulse simulator against jaqsi_pulse for every mode."""
 
+    @pytest.mark.parametrize("optimal", [False, True], ids=["default", "optimal"])
     @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
     @pytest.mark.parametrize("mode", MODES)
-    def test_matches_reference(self, reference, sim_cls, mode):
+    def test_matches_reference(self, reference, sim_cls, mode, optimal):
         sim = sim_cls()
-        sim.setup(N_QUBITS, mode)
+        sim.setup(N_QUBITS, mode, optimal_config=optimal)
         result = np.asarray(sim.run(jnp.array([0.5])))
 
         assert result.shape == reference[mode].shape
@@ -83,24 +87,35 @@ class TestPulseCrossValidation:
         )
 
 
+# Each simulator paired with the tolerance its two configurations agree to.
+# PennyLane and dynamiqs run the same integrator either way, so they agree far
+# more tightly than the cross-simulator tolerance.  QuTiP switches between
+# ``sesolve`` and ``propagator``, which are different routines, so its two
+# configurations only agree to the solver-limited tolerance.
+_OPTIMAL_CONFIG_SIMULATORS = [
+    pytest.param(QutipPulseBenchmark, PRECISION, id="qutip_pulse"),
+    pytest.param(DynamiqsPulseBenchmark, 1e-8, id="dynamiqs_pulse"),
+    pytest.param(PennylanePulseBenchmark, 1e-8, id="pennylane_pulse"),
+]
+
+
 class TestPulseOptimalConfigEquivalence:
     """optimal_config must not change numerical results, only performance."""
 
+    @pytest.mark.parametrize("sim_cls, tolerance", _OPTIMAL_CONFIG_SIMULATORS)
     @pytest.mark.parametrize("mode", MODES)
-    def test_pennylane_optimal_matches_default(self, mode):
+    def test_optimal_matches_default(self, sim_cls, tolerance, mode):
         phi = jnp.array([0.5])
 
-        default_sim = PennylanePulseBenchmark()
+        default_sim = sim_cls()
         default_sim.setup(N_QUBITS, mode, optimal_config=False)
         default_out = np.asarray(default_sim.run(phi))
 
-        optimal_sim = PennylanePulseBenchmark()
+        optimal_sim = sim_cls()
         optimal_sim.setup(N_QUBITS, mode, optimal_config=True)
         optimal_out = np.asarray(optimal_sim.run(phi))
 
-        # Both paths integrate the same ODEs with the same solver, so they agree
-        # far more tightly than the cross-simulator tolerance.
-        np.testing.assert_allclose(default_out, optimal_out, atol=1e-8)
+        np.testing.assert_allclose(default_out, optimal_out, atol=tolerance)
 
 
 # ------------------------------------------------------------------

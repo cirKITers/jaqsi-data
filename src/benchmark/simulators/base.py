@@ -104,7 +104,7 @@ class SimulatorBenchmark(ABC):
         self.setup(n_qubits, mode, optimal_config=optimal_config)
 
         if do_warmup:
-            self.warmup(all_phis[-1])
+            jax.block_until_ready(self.warmup(all_phis[-1]))
 
         times: list[float] = []
         result = None
@@ -114,7 +114,10 @@ class SimulatorBenchmark(ABC):
         try:
             for i in range(n_iters):
                 t0 = time.perf_counter()
-                result = self.run(all_phis[i])
+                # JAX dispatches asynchronously, so an unforced result would
+                # time the enqueue rather than the simulation.  Blocking is a
+                # no-op for the adapters that already return materialized data.
+                result = jax.block_until_ready(self.run(all_phis[i]))
                 times.append(time.perf_counter() - t0)
         finally:
             if gc_was_enabled:

@@ -17,6 +17,7 @@ from scipy.integrate import solve_ivp
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from benchmark.simulators.jaqsi_pulse_sim import JaqsiPulseBenchmark
 from benchmark.simulators.pulse_model import (
+    apply_local,
     build_schedule,
     embed,
     make_coeff_fn,
@@ -67,6 +68,27 @@ class TestSchedule:
             op = embed(segment.op, segment.wires, n_qubits)
             assert op.shape == (2**n_qubits, 2**n_qubits)
             np.testing.assert_allclose(op, op.conj().T, atol=1e-12)
+
+    @pytest.mark.parametrize("n_qubits", [2, 3, 4])
+    def test_apply_local_matches_embedding(self, n_qubits):
+        """Contracting a local operator equals applying its embedded form.
+
+        The optimized adapters integrate local propagators and contract them
+        into the statevector, so the two routes have to agree exactly.
+        """
+        rng = np.random.default_rng(n_qubits)
+        psi = rng.normal(size=2**n_qubits) + 1j * rng.normal(size=2**n_qubits)
+
+        for segment in build_schedule(n_qubits):
+            local = rng.normal(size=segment.op.shape) + 1j * rng.normal(
+                size=segment.op.shape
+            )
+            np.testing.assert_allclose(
+                apply_local(local, psi, segment.wires, n_qubits),
+                embed(local, segment.wires, n_qubits) @ psi,
+                atol=1e-12,
+                err_msg=f"local application mismatch on wires {segment.wires}",
+            )
 
 
 class TestTranscription:

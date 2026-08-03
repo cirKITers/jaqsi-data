@@ -116,7 +116,9 @@ def _validate_results(
     if ref.mode == "expval" and other.simulator == "pennylane":
         oth_arr = oth_arr.T
 
-    if not jnp.allclose(ref_arr, oth_arr, atol=precision):
+    # rtol is disabled so that *precision* is the whole tolerance rather than
+    # being widened by numpy's default relative term.
+    if not jnp.allclose(ref_arr, oth_arr, atol=precision, rtol=0.0):
         raise RuntimeError(
             f"Results mismatch ({ref.simulator} vs {other.simulator}) "
             f"for {ref.n_qubits} qubits, mode={ref.mode}:\n"

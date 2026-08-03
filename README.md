@@ -26,7 +26,7 @@ The circuit is evaluated across four measurement modes: probs, expval, state, an
 
 ## Pulse-Level Benchmark Circuit
 
-The pulse-level benchmark runs the same circuit, but every gate is expanded into the sequence of time evolutions $\mathrm{d}U/\mathrm{d}t = -i H(t) U$ that JAQSI's `PulseGates` execute, giving $21n$ segments for $n$ qubits. That schedule is transcribed once in [`src/benchmark/simulators/pulse_model.py`](src/benchmark/simulators/pulse_model.py) and rebuilt from there by each adapter, so all simulators integrate an identical sequence of ODEs rather than their own pulse model.
+The pulse-level benchmark runs the same circuit, but every gate is expanded into the sequence of time evolutions $\mathrm{d}U/\mathrm{d}t = -i H(t) U$ that JAQSI's `PulseGates` execute, giving $21n$ segments for $n$ qubits. That schedule is transcribed once in [`src/benchmark/simulators/pulse_model.py`](src/benchmark/simulators/pulse_model.py) and rebuilt from there by each adapter, so all simulators integrate the same segments with the same coefficients and durations rather than their own pulse model.
 
 The transcription covers the shipped JAQSI defaults, i.e. the drag envelope with the rotating-wave approximation enabled, under which the driven rotations evolve under
 
@@ -36,7 +36,16 @@ while the virtual $RZ$, the $CZ$ coupling and the Hadamard correction phase evol
 
 Pulse results carry each backend's ODE solver error, so they are cross-validated against `jaqsi_pulse` at a solver-limited tolerance rather than against the exact gate-level results.
 
-As at gate level, `optimal_config` selects each simulator's performance-optimized configuration. For PennyLane the two configurations differ more than elsewhere: the default path uses `qml.evolve`, whose per-operation overhead costs roughly 190 ms per segment independently of solver tolerance, while the optimized path integrates the same segments with `jax.experimental.ode` (the solver `ParametrizedEvolution` is built on) and applies the resulting local unitaries as gates. Both produce identical results to within $10^{-10}$, and the optimized path is two to three orders of magnitude faster, but it no longer exercises the `qml.pulse` API itself. Set `optimal_config=false` to measure that API as such.
+As at gate level, `optimal_config` selects each simulator's performance-optimized configuration. At pulse level the two configurations differ in the dimension of the integrated ODE, which dominates the cost:
+
+- Default: QuTiP and dynamiqs embed each segment operator into the full register and evolve the $2^n$-dimensional statevector with `sesolve`, the idiomatic formulation of a pulse schedule. PennyLane uses `qml.evolve`, whose per-operation overhead costs roughly 190 ms per segment independently of solver tolerance and dominates everything else.
+- Optimized: each segment is integrated on its own $2 \times 2$ or $4 \times 4$ space and the resulting local propagator is contracted into the statevector, via `qutip.propagator`, `dynamiqs.sepropagator` and `jax.experimental.ode` respectively. JAQSI composes its pulse gates this way by construction, so only this configuration compares like with like.
+
+Both configurations agree within the solver-limited tolerance and are cross-checked against each other in the test suite. Comparing against the default configuration therefore measures an architectural difference, local versus full-register evolution, on top of the implementation difference; comparing against the optimized configuration isolates the implementation. Reporting both separates the two effects.
+
+Two asymmetries are left in place rather than normalized. JAQSI and dynamiqs vectorize the batch dimension with `jax.vmap` while PennyLane and QuTiP loop over it in Python, so the latter two pay the full batch factor. PennyLane's optimized path integrates with Dormand-Prince 5(4), the method `ParametrizedEvolution` is built on, while the others use Dormand-Prince 8(7); all four run at $10^{-10}$ absolute and relative tolerance.
+
+Timings block on the returned array before the clock is stopped, so the JAX-based adapters measure the completed computation rather than the asynchronous dispatch that returns immediately.
 
 ## Requirements
 

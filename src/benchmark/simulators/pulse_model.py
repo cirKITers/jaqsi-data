@@ -129,6 +129,29 @@ def embed(op: np.ndarray, wires: Tuple[int, ...], n_qubits: int, xp=np):
     return tensor.reshape(2**n_qubits, 2**n_qubits)
 
 
+def apply_local(u, psi, wires: Tuple[int, ...], n_qubits: int, xp=np):
+    """Apply the local unitary *u* on *wires* to the statevector *psi*.
+
+    Contracts *u* with the corresponding axes of *psi* instead of embedding it
+    into the full register, so the caller only ever integrates a $2 \\times 2$
+    or $4 \\times 4$ ODE.  Equivalent to ``embed(u, wires, n_qubits) @ psi``
+    under the same big-endian convention.
+    """
+    k = len(wires)
+    tensor = psi.reshape([2] * n_qubits)
+    contracted = xp.tensordot(
+        u.reshape([2] * (2 * k)),
+        tensor,
+        axes=(list(range(k, 2 * k)), list(wires)),
+    )
+
+    # tensordot leaves the wire axes in front, followed by the untouched ones.
+    rest = [q for q in range(n_qubits) if q not in wires]
+    order = list(wires) + rest
+    perm = [order.index(q) for q in range(n_qubits)]
+    return contracted.transpose(perm).reshape(2**n_qubits)
+
+
 def _pauli_z_expvals(probs, n_qubits: int, xp=np):
     """Return per-qubit $\\langle Z \\rangle$ from a big-endian probability vector."""
     reshaped = probs.reshape([2] * n_qubits)
