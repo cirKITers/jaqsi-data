@@ -164,6 +164,16 @@ Results are written to the `benchmarking_results/` directory:
 
 Runs support automatic recovery: if a run is interrupted, re-running with the same `output.identifier` will skip already-completed combinations.
 
+### Pulse infidelity
+
+Pulse-level rows carry an additional `infidelity` column, reporting $1 - F$ between the pulse result and the gate-level circuit the pulses implement. It is logged during the run and written per simulator, mode and qubit count, which makes the sensitivity of a pulse simulation to its calibrated parameters and its solver accuracy visible alongside the timings.
+
+Each pulse simulator is scored against its own framework's gate-level adapter where one exists (`jaqsi_pulse` against `jaqsi`, `pennylane_pulse` against `pennylane`); QuTiP and dynamiqs have no gate-level adapter here and fall back to `jaqsi`. The gate-level simulators agree to an infidelity of order $10^{-15}$, so that choice does not affect the reported value.
+
+The fidelity is normalised by the norms of both operands. Without that normalisation the ODE solvers' norm drift, which reaches $10^{-7}$ for the looser configurations, dominates the result and can even push $1 - F$ negative. Because infidelity grows with the square of the state error, an amplitude deviation of $10^{-7}$ registers as roughly $10^{-14}$, close to the double-precision floor.
+
+The column is written for the `probs`, `state` and `density` modes and left empty for `expval`, whose output is not a state. In `probs` mode it is the classical fidelity of the measurement distributions; in `state` and `density` mode it is the quantum state fidelity.
+
 ## JAQSI Performance Profiling
 
 In addition to the comparative benchmarks above, this repo includes a JAX-level profiling module for JAQSI.  It captures execution traces using `jax.profiler` that can be inspected in [Perfetto UI](https://ui.perfetto.dev/) for detailed analysis of kernel timings, memory allocations, XLA compilation, and device utilisation.

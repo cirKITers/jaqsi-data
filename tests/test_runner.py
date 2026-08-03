@@ -11,9 +11,11 @@ import pytest
 
 from benchmark.runner import (
     CSV_COLUMNS,
+    GATE_COUNTERPART,
     _append_row,
     _csv_path,
     _ensure_csv,
+    _infidelity,
     _load_completed,
     _validate_results,
 )
@@ -152,3 +154,103 @@ class TestValidateResults:
         r1 = BenchmarkResult("jaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
         r2 = BenchmarkResult("qibo", "expval", 3, 1, 10, 2.0, 0.2, qb_arr)
         _validate_results(r1, r2, precision=1e-8)
+
+
+# ---------------------------------------------------------------------------
+# _infidelity
+# ---------------------------------------------------------------------------
+
+class TestInfidelity:
+    """Pulse results are scored against the gate-level circuit they implement."""
+
+    _PSI = jnp.array([[0.6, 0.8j, 0.0, 0.0]])
+
+    @staticmethod
+    def _density(psi):
+        return jnp.einsum("bi,bj->bij", psi, jnp.conj(psi))
+
+    def test_identical_state_is_zero(self):
+        assert _infidelity(self._PSI, self._PSI, "state") == pytest.approx(0.0, abs=1e-15)
+
+    def test_identical_density_is_zero(self):
+        rho = self._density(self._PSI)
+        assert _infidelity(rho, rho, "density") == pytest.approx(0.0, abs=1e-15)
+
+    def test_identical_probs_is_zero(self):
+        probs = jnp.abs(self._PSI) ** 2
+        assert _infidelity(probs, probs, "probs") == pytest.approx(0.0, abs=1e-15)
+
+    def test_orthogonal_states_are_one(self):
+        orthogonal = jnp.array([[0.0, 0.0, 1.0, 0.0]])
+        assert _infidelity(self._PSI, orthogonal, "state") == pytest.approx(1.0)
+
+    def test_expval_has_no_fidelity(self):
+        assert _infidelity(self._PSI, self._PSI, "expval") is None
+
+    def test_global_phase_is_ignored(self):
+        phased = self._PSI * jnp.exp(1j * 0.7)
+        assert _infidelity(phased, self._PSI, "state") == pytest.approx(0.0, abs=1e-15)
+
+    def test_norm_drift_does_not_go_negative(self):
+        """The ODE solvers do not preserve the norm exactly."""
+        drifted = self._PSI * (1.0 + 1.0e-7)
+        assert _infidelity(drifted, self._PSI, "state") >= 0.0
+
+    def test_matches_analytic_overlap(self):
+        theta = 0.3
+        rotated = jnp.array([[jnp.cos(theta), jnp.sin(theta)]], dtype=complex)
+        zero = jnp.array([[1.0, 0.0]], dtype=complex)
+        expected = float(jnp.sin(theta) ** 2)
+        assert _infidelity(rotated, zero, "state") == pytest.approx(expected)
+        # Pure states: the density-matrix fidelity reduces to the same overlap.
+        assert _infidelity(
+            self._density(rotated), self._density(zero), "density"
+        ) == pytest.approx(expected)
+
+    def test_reports_worst_case_over_batch(self):
+        theta = 0.3
+        rotated = jnp.array([[jnp.cos(theta), jnp.sin(theta)]], dtype=complex)
+        zero = jnp.array([[1.0, 0.0]], dtype=complex)
+        batch = jnp.concatenate([zero, rotated], axis=0)
+        reference = jnp.concatenate([zero, zero], axis=0)
+        assert _infidelity(batch, reference, "state") == pytest.approx(
+            float(jnp.sin(theta) ** 2)
+        )
+
+    def test_every_pulse_simulator_has_a_counterpart(self):
+        from benchmark.runner import SIMULATOR_REGISTRY, _level
+
+        pulse = {name for name in SIMULATOR_REGISTRY if _level(name) == "pulse"}
+        assert pulse == set(GATE_COUNTERPART)
+        for gate_name in GATE_COUNTERPART.values():
+            assert _level(gate_name) == "gate"
+            assert gate_name in SIMULATOR_REGISTRY
+
+
+class TestInfidelityColumn:
+    """The infidelity reaches the CSV, and is blank for gate-level rows."""
+
+    def test_written_for_pulse_rows(self, tmp_path: Path):
+        path = tmp_path / "b.csv"
+        _ensure_csv(path)
+        result = BenchmarkResult(
+            "jaqsi_pulse", "state", 2, 1, 10, 1.0, 0.1, jnp.array([1.0])
+        )
+        result.infidelity = 1.25e-14
+        _append_row(path, result)
+
+        with open(path, newline="") as f:
+            row = list(csv.DictReader(f))[0]
+        assert float(row["infidelity"]) == pytest.approx(1.25e-14)
+
+    def test_blank_for_gate_rows(self, tmp_path: Path):
+        path = tmp_path / "b.csv"
+        _ensure_csv(path)
+        _append_row(
+            path,
+            BenchmarkResult("jaqsi", "state", 2, 1, 10, 1.0, 0.1, jnp.array([1.0])),
+        )
+
+        with open(path, newline="") as f:
+            row = list(csv.DictReader(f))[0]
+        assert row["infidelity"] == ""

@@ -7,7 +7,7 @@ import importlib
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -26,6 +26,7 @@ CSV_COLUMNS = [
     "std_ms",
     "batch_size",
     "n_iters",
+    "infidelity",
 ]
 
 # Maps a simulator name to the module and class implementing its adapter.
@@ -48,10 +49,75 @@ SIMULATOR_REGISTRY: Dict[str, Tuple[str, str]] = {
 # exact gate-level results.
 REFERENCE_BY_LEVEL: Dict[str, str] = {"gate": "jaqsi", "pulse": "jaqsi_pulse"}
 
+# Gate-level simulation each pulse simulator is measured against.  QuTiP and
+# dynamiqs have no gate-level adapter here, so they fall back to the gate
+# reference; the gate-level simulators agree to an infidelity of order
+# $10^{-15}$, which makes the choice immaterial.
+GATE_COUNTERPART: Dict[str, str] = {
+    "jaqsi_pulse": "jaqsi",
+    "pennylane_pulse": "pennylane",
+    "qutip_pulse": "jaqsi",
+    "dynamiqs_pulse": "jaqsi",
+}
+
+# Modes whose output defines a state or a distribution, and hence a fidelity.
+FIDELITY_MODES = frozenset({"state", "density", "probs"})
+
 
 def _level(simulator: str) -> str:
     """Return the simulation level (``gate`` or ``pulse``) of *simulator*."""
     return "pulse" if simulator.endswith("_pulse") else "gate"
+
+
+def _infidelity(pulse_output, gate_output, mode: str) -> Optional[float]:
+    """Return $1 - F$ between a pulse result and its gate-level counterpart.
+
+    The fidelity is normalised by the norms of both operands, so that the
+    result measures the deviation in state rather than the norm drift the ODE
+    solvers accumulate.  Returns the worst case over the batch, or ``None``
+    for modes that define no state.  Normalisation bounds the fidelity by one,
+    so the result is clipped at zero to absorb rounding at that bound.
+    """
+    pulse = jnp.asarray(pulse_output)
+    gate = jnp.asarray(gate_output)
+
+    if mode == "state":
+        overlap = jnp.abs(jnp.sum(jnp.conj(gate) * pulse, axis=-1)) ** 2
+        norms = jnp.sum(jnp.abs(gate) ** 2, axis=-1) * jnp.sum(
+            jnp.abs(pulse) ** 2, axis=-1
+        )
+    elif mode == "density":
+        # The schedule is unitary, so both operands are pure and the Uhlmann
+        # fidelity reduces to $\\mathrm{tr}(\\rho\\sigma)$.
+        overlap = jnp.real(jnp.einsum("...ij,...ji->...", gate, pulse))
+        norms = jnp.real(
+            jnp.trace(gate, axis1=-2, axis2=-1) * jnp.trace(pulse, axis1=-2, axis2=-1)
+        )
+    elif mode == "probs":
+        # Classical fidelity of the measurement distributions.
+        gate_p = jnp.clip(jnp.real(gate), 0.0)
+        pulse_p = jnp.clip(jnp.real(pulse), 0.0)
+        overlap = jnp.sum(jnp.sqrt(gate_p * pulse_p), axis=-1) ** 2
+        norms = jnp.sum(gate_p, axis=-1) * jnp.sum(pulse_p, axis=-1)
+    else:
+        return None
+
+    return max(0.0, float(jnp.max(1.0 - overlap / norms)))
+
+
+def _gate_output(
+    name: str,
+    n_qubits: int,
+    mode: Mode,
+    phi: jnp.ndarray,
+    optimal_config: bool,
+) -> jnp.ndarray:
+    """Execute the gate-level simulator *name* once, outside the timing loop."""
+    module_name, class_name = SIMULATOR_REGISTRY[name]
+    module = importlib.import_module(f"benchmark.simulators.{module_name}")
+    sim = getattr(module, class_name)()
+    sim.setup(n_qubits, mode, optimal_config=optimal_config)
+    return sim.run(phi)
 
 
 def _csv_path(cfg: BenchmarkConfig) -> Path:
@@ -94,6 +160,7 @@ def _append_row(path: Path, result: BenchmarkResult) -> None:
                 f"{result.std_ms:.6f}",
                 result.batch_size,
                 result.n_iters,
+                "" if result.infidelity is None else f"{result.infidelity:.6e}",
             ]
         )
 
@@ -183,6 +250,11 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
 
             sim_results: Dict[str, BenchmarkResult] = {}
 
+            # The recorded output is the one from the last timed iteration, so
+            # the gate-level comparison has to use the same parameters.
+            last_phi = all_phis[cfg.execution.n_iters - 1]
+            gate_outputs: Dict[str, jnp.ndarray] = {}
+
             for sim in simulators:
                 key = (n_qubits, mode, sim.name)
                 if key in completed:
@@ -203,6 +275,22 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                 logger.info(
                     f"  {result.mean_ms:.2f} ± {result.std_ms:.2f} ms"
                 )
+
+                # Report how far the pulse simulation drifts from the gate-level
+                # circuit it implements, which the calibrated pulse parameters
+                # and the ODE solver accuracy both feed into.
+                if _level(sim.name) == "pulse" and mode in FIDELITY_MODES:
+                    gate_name = GATE_COUNTERPART[sim.name]
+                    if gate_name not in gate_outputs:
+                        gate_outputs[gate_name] = _gate_output(
+                            gate_name, n_qubits, mode, last_phi, cfg.optimal_config
+                        )
+                    result.infidelity = _infidelity(
+                        result.raw_output, gate_outputs[gate_name], mode
+                    )
+                    logger.info(
+                        f"  infidelity vs {gate_name}: {result.infidelity:.3e}"
+                    )
 
                 _append_row(csv_file, result)
                 completed.add(key)

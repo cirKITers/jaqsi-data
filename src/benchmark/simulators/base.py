@@ -6,7 +6,7 @@ import gc
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 import jax
 import jax.numpy as jnp
@@ -44,6 +44,9 @@ class BenchmarkResult:
     mean_ms: float
     std_ms: float
     raw_output: jnp.ndarray  # last execution result – used for correctness checks
+    # Deviation from the gate-level simulation, filled in by the runner for
+    # pulse-level simulators only.
+    infidelity: Optional[float] = None
 
 
 class SimulatorBenchmark(ABC):
