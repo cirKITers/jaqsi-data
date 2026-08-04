@@ -25,7 +25,9 @@ from benchmark.simulators.qutip_pulse_sim import QutipPulseBenchmark
 # Enable 64-bit precision for JAX (matches the benchmark runner)
 jax.config.update("jax_enable_x64", True)
 
-# Matches ``precision`` in configs/pulse.yaml
+# Tighter than ``precision`` in configs/pulse.yaml, which has to cover the
+# solver error accumulated over a full sweep; these tests run at two qubits,
+# where the deviation stays around $10^{-7}$.
 PRECISION = 1e-6
 
 N_QUBITS = 2

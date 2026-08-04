@@ -34,7 +34,7 @@ $$ H(t) = \tfrac{1}{2}\,\Omega(t)\,w\,P, \qquad \Omega(t) = A e^{-t^2/(8\sigma^2
 
 while the virtual $RZ$, the $CZ$ coupling and the Hadamard correction phase evolve under a constant $H$.
 
-Pulse results carry each backend's ODE solver error, so they are cross-validated against `jaqsi_pulse` at a solver-limited tolerance rather than against the exact gate-level results.
+Pulse results carry each backend's ODE solver error, so they are cross-validated against `jaqsi_pulse` at a solver-limited tolerance rather than against the exact gate-level results. That error accumulates over the $21n$ solves run in sequence, and `expval` amplifies it because it sums $2^n$ probabilities, which makes it the mode that sets the tolerance: at 8 qubits the full-register path deviates by $1.2 \cdot 10^{-6}$ there against $3 \cdot 10^{-8}$ in `probs`. Widening the qubit sweep therefore needs a looser `precision`.
 
 As at gate level, `optimal_config` selects each simulator's performance-optimized configuration. At pulse level the two configurations differ in the dimension of the integrated ODE, which dominates the cost:
 

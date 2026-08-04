@@ -3,8 +3,12 @@ seed: 1000
 warmup: true
 # Pulse results carry the ODE solver error of each backend, so the
 # cross-validation tolerance is set by the solver rather than by machine
-# precision.  Raise this if a larger qubit sweep accumulates more error.
-precision: 1.0e-6
+# precision.  The error accumulates over the $21 n$ solves the schedule runs in
+# sequence, and expval amplifies it because it sums $2^n$ probabilities: at 8
+# qubits the full-register path deviates by $1.2 \cdot 10^{-6}$ there against
+# $3 \cdot 10^{-8}$ in probs.  This tolerance covers the sweep up to
+# ``qubits.max``; a wider one needs more headroom.
+precision: 1.0e-5
 
 # Use performance-optimized simulator configurations.  For pennylane this
 # integrates the segments with jax.experimental.ode directly instead of going
