@@ -13,7 +13,8 @@ JAQSI also simulates at pulse level, which is benchmarked separately against the
 - [QuTiP](https://github.com/qutip/qutip) — `sesolve` on a `QobjEvo` Hamiltonian
 - [dynamiqs](https://github.com/dynamiqs/dynamiqs) — `sesolve` with JAX and Diffrax solvers
 
-Qiskit is absent from that list because pulse support was removed in Qiskit 2.0 and the successor package pins `qiskit<=1.3`. Qulacs has no pulse-level interface, and Qibo exposes it only through the Qibolab hardware emulator.
+Qiskit is absent from that list because pulse support was removed in Qiskit 2.0 and the successor package pins `qiskit<=1.3`. 
+Qulacs has no pulse-level interface, and Qibo exposes it only through the Qibolab hardware emulator.
 
 ## Benchmark Circuit
 
@@ -26,7 +27,8 @@ The circuit is evaluated across four measurement modes: probs, expval, state, an
 
 ## Pulse-Level Benchmark Circuit
 
-The pulse-level benchmark runs the same circuit, but every gate is expanded into the sequence of time evolutions $\mathrm{d}U/\mathrm{d}t = -i H(t) U$ that JAQSI's `PulseGates` execute, giving $21n$ segments for $n$ qubits. That schedule is transcribed once in [`src/benchmark/simulators/pulse_model.py`](src/benchmark/simulators/pulse_model.py) and rebuilt from there by each adapter, so all simulators integrate the same segments with the same coefficients and durations rather than their own pulse model.
+The pulse-level benchmark runs the same circuit, but every gate is expanded into the sequence of time evolutions $\mathrm{d}U/\mathrm{d}t = -i H(t) U$ that JAQSI's `PulseGates` execute, giving $21n$ segments for $n$ qubits.
+That schedule is transcribed once in [`src/benchmark/simulators/pulse_model.py`](src/benchmark/simulators/pulse_model.py) and rebuilt from there by each adapter, so all simulators integrate the same segments with the same coefficients and durations rather than their own pulse model.
 
 The transcription covers the shipped JAQSI defaults, i.e. the drag envelope with the rotating-wave approximation enabled, under which the driven rotations evolve under
 
@@ -34,16 +36,23 @@ $$ H(t) = \tfrac{1}{2}\,\Omega(t)\,w\,P, \qquad \Omega(t) = A e^{-t^2/(8\sigma^2
 
 while the virtual $RZ$, the $CZ$ coupling and the Hadamard correction phase evolve under a constant $H$.
 
-Pulse results carry each backend's ODE solver error, so they are cross-validated against `jaqsi_pulse` at a solver-limited tolerance rather than against the exact gate-level results. That error accumulates over the $21n$ solves run in sequence, and `expval` amplifies it because it sums $2^n$ probabilities, which makes it the mode that sets the tolerance: at 8 qubits the full-register path deviates by $1.2 \cdot 10^{-6}$ there against $3 \cdot 10^{-8}$ in `probs`. Widening the qubit sweep therefore needs a looser `precision`.
+Pulse results carry each backend's ODE solver error, so they are cross-validated against `jaqsi_pulse` at a solver-limited tolerance.
+That error accumulates over the $21n$ solves run in sequence, and `expval` amplifies it because it sums $2^n$ probabilities, which makes it the mode that sets the tolerance: at 8 qubits the full-register path deviates by $1.2 \cdot 10^{-6}$ there against $3 \cdot 10^{-8}$ in `probs`.
+Widening the qubit sweep therefore needs a looser `precision`.
 
-As at gate level, `optimal_config` selects each simulator's performance-optimized configuration. At pulse level the two configurations differ in the dimension of the integrated ODE, which dominates the cost:
+As at gate level, `optimal_config` selects each simulator's performance-optimized configuration.
+At pulse level the two configurations differ in the dimension of the integrated ODE, which dominates the cost:
 
 - Default: QuTiP and dynamiqs embed each segment operator into the full register and evolve the $2^n$-dimensional statevector with `sesolve`, the idiomatic formulation of a pulse schedule. PennyLane uses `qml.evolve`, whose per-operation overhead costs roughly 190 ms per segment independently of solver tolerance and dominates everything else.
 - Optimized: each segment is integrated on its own $2 \times 2$ or $4 \times 4$ space and the resulting local propagator is contracted into the statevector, via `qutip.propagator`, `dynamiqs.sepropagator` and `jax.experimental.ode` respectively. JAQSI composes its pulse gates this way by construction, so only this configuration compares like with like.
 
-Both configurations agree within the solver-limited tolerance and are cross-checked against each other in the test suite. Comparing against the default configuration therefore measures an architectural difference, local versus full-register evolution, on top of the implementation difference; comparing against the optimized configuration isolates the implementation. Reporting both separates the two effects.
+Both configurations agree within the solver-limited tolerance and are cross-checked against each other in the test suite.
+Comparing against the default configuration therefore measures an architectural difference, local versus full-register evolution, on top of the implementation difference; comparing against the optimized configuration isolates the implementation.
+Reporting both separates the two effects.
 
-Two asymmetries are left in place rather than normalized. JAQSI and dynamiqs vectorize the batch dimension with `jax.vmap` while PennyLane and QuTiP loop over it in Python, so the latter two pay the full batch factor. PennyLane's optimized path integrates with Dormand-Prince 5(4), the method `ParametrizedEvolution` is built on, while the others use Dormand-Prince 8(7); all four run at $10^{-10}$ absolute and relative tolerance.
+Two asymmetries are left in place rather than normalized.
+JAQSI and dynamiqs vectorize the batch dimension with `jax.vmap` while PennyLane and QuTiP loop over it in Python, so the latter two pay the full batch factor.
+PennyLane's optimized path integrates with Dormand-Prince 5(4), the method `ParametrizedEvolution` is built on, while the others use Dormand-Prince 8(7); all four run at $10^{-10}$ absolute and relative tolerance.
 
 Timings block on the returned array before the clock is stopped, so the JAX-based adapters measure the completed computation rather than the asynchronous dispatch that returns immediately.
 
@@ -85,11 +94,10 @@ uv run python -m benchmark qubits.max=10 execution.n_iters=20
 
 ### Run with optimized simulator configurations
 
-By default each competitor simulator runs in its baseline configuration. Setting
-`optimal_config=true` switches them to performance-optimized configurations
-(PennyLane: `jax.jit`-compiled QNode; Qiskit: qiskit-aer C++ simulator; Qibo:
-qibojit numba backend; Qulacs: gate-fusion via `QuantumCircuitOptimizer`). These
-configurations are numerically equivalent to the defaults. JAQSI is unaffected.
+By default each competitor simulator runs in its baseline configuration.
+Setting `optimal_config=true` switches them to performance-optimized configurations (PennyLane: `jax.jit`-compiled QNode; Qiskit: qiskit-aer C++ simulator; Qibo: qibojit numba backend; Qulacs: gate-fusion via `QuantumCircuitOptimizer`). 
+These configurations are numerically equivalent to the defaults.
+JAQSI is unaffected.
 
 ```bash
 uv run python -m benchmark optimal_config=true
