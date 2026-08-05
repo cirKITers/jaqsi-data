@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 REFERENCE_SIMULATOR = "jaqsi"
 REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 
+# Measurement modes to include in the generated figures.  Set to None to plot
+# every mode present in the results file.
+PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "state", "density")
+
 
 # ------------------------------------------------------------------
 # Data structures
@@ -193,6 +197,18 @@ def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
 # Plotting
 # ------------------------------------------------------------------
 
+def _select_modes(results: Dict[str, ModeResults]) -> Dict[str, ModeResults]:
+    """Drop modes not listed in :data:`PLOT_MODES`."""
+    if PLOT_MODES is None:
+        return results
+    return {m: mr for m, mr in results.items() if m in PLOT_MODES}
+
+
+def _label(sim: str) -> str:
+    """Display name for a simulator; pulse adapters drop their suffix."""
+    return sim.removesuffix("_pulse").capitalize()
+
+
 def _pick_reference(results: Dict[str, ModeResults]) -> str:
     """Return the first reference simulator present in *results*."""
     present = {s for mr in results.values() for s in mr.simulators}
@@ -215,6 +231,7 @@ def plot_ratio(
     non-reference simulator is drawn with a distinct colour.  When *reference*
     is omitted it is taken from the simulators present in *results*.
     """
+    results = _select_modes(results)
     n_modes = len(results)
     if n_modes == 0:
         logger.warning("No results to plot.")
@@ -258,7 +275,7 @@ def plot_ratio(
                     mr.qubit_sizes,
                     ratios,
                     yerr=errors,
-                    label=other_sim.capitalize(),
+                    label=_label(other_sim),
                     color=SIMULATOR_COLORS[other_sim],
                     linestyle="-",
                     marker="o",
@@ -275,7 +292,7 @@ def plot_ratio(
             _set_integer_xticks(ax, mr.qubit_sizes)
             style_axes(ax)
 
-        axes[0].set_ylabel(f"Time ratio vs {reference.capitalize()}")
+        axes[0].set_ylabel(f"Time ratio vs {_label(reference)}")
         fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
@@ -297,6 +314,7 @@ def plot_absolute(
     Within each subplot every simulator is drawn with a distinct
     colour.
     """
+    results = _select_modes(results)
     n_modes = len(results)
     if n_modes == 0:
         logger.warning("No results to plot.")
@@ -316,7 +334,7 @@ def plot_absolute(
                     st.qubit_sizes,
                     st.mean_ms,
                     yerr=st.std_ms,
-                    label=sim_name.capitalize(),
+                    label=_label(sim_name),
                     color=SIMULATOR_COLORS[sim_name],
                     linestyle="-",
                     marker="o",

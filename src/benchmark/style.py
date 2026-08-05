@@ -11,7 +11,6 @@ from typing import Dict
 
 import matplotlib.pyplot as plt
 
-# Paper colour palette (mirrors ``COLOURS.LIST`` in the R ``layout.r``).
 COLOURS = [
     "#000000",  # black
     "#E69F00",  # orange
