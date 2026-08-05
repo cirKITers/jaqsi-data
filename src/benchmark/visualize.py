@@ -37,6 +37,9 @@ class SimTimings:
     qubit_sizes: List[int] = field(default_factory=list)
     mean_ms: List[float] = field(default_factory=list)
     std_ms: List[float] = field(default_factory=list)
+    # None where the CSV cell is empty (gate-level rows, expval mode) or where
+    # the column is absent entirely (result files predating it).
+    infidelity: List[Optional[float]] = field(default_factory=list)
 
 
 @dataclass
@@ -77,9 +80,11 @@ def load_results(csv_path: str | Path) -> Dict[str, ModeResults]:
                 raw[key] = {}
             sim_name = row["simulator"]
             all_simulators.add(sim_name)
+            raw_inf = row.get("infidelity", "")
             raw[key][sim_name] = {
                 "mean_ms": float(row["mean_ms"]),
                 "std_ms": float(row["std_ms"]),
+                "infidelity": float(raw_inf) if raw_inf else None,
             }
 
     # Second pass: organise by mode, keeping only complete qubit rows
@@ -102,6 +107,7 @@ def load_results(csv_path: str | Path) -> Dict[str, ModeResults]:
             st.qubit_sizes.append(n_qubits)
             st.mean_ms.append(entry[sim_name]["mean_ms"])
             st.std_ms.append(entry[sim_name]["std_ms"])
+            st.infidelity.append(entry[sim_name]["infidelity"])
 
     return modes_seen
 
@@ -135,6 +141,11 @@ def _compute_ratio_with_error(
 # Two-column text width (inches) of the IEEE conference paper. Figures are
 # sized to this width so they drop into ``figure*`` at their natural scale.
 TEXTWIDTH_IN = 7.16
+
+# Double-precision floor. An infidelity at or below $\varepsilon$ means the pulse
+# result is indistinguishable from the gate-level reference, so such values are
+# clipped to it rather than dropped by the logarithmic axis.
+MACHINE_EPS = 2.220446049250313e-16
 
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
@@ -202,6 +213,28 @@ def _select_modes(results: Dict[str, ModeResults]) -> Dict[str, ModeResults]:
     if PLOT_MODES is None:
         return results
     return {m: mr for m, mr in results.items() if m in PLOT_MODES}
+
+
+def _infidelity_series(
+    results: Dict[str, ModeResults],
+) -> Dict[str, Dict[str, Tuple[List[int], List[float]]]]:
+    """Extract the measured infidelities, dropping empty modes and simulators.
+
+    Returns mode → simulator → ``(qubit_sizes, infidelities)``, keeping only the
+    qubit counts where that simulator reported a value.
+    """
+    series: Dict[str, Dict[str, Tuple[List[int], List[float]]]] = {}
+    for mode, mr in results.items():
+        per_sim: Dict[str, Tuple[List[int], List[float]]] = {}
+        for sim_name, st in mr.simulators.items():
+            points = [
+                (q, v) for q, v in zip(st.qubit_sizes, st.infidelity) if v is not None
+            ]
+            if points:
+                per_sim[sim_name] = ([q for q, _ in points], [v for _, v in points])
+        if per_sim:
+            series[mode] = per_sim
+    return series
 
 
 def _label(sim: str) -> str:
@@ -349,6 +382,65 @@ def plot_absolute(
             style_axes(ax)
 
         axes[0].set_ylabel("Time (ms)")
+        fig.tight_layout(rect=(0, 0, 1, 0.90))
+        _add_shared_legend(fig, axes)
+
+        if output_path is not None:
+            _save_figure(fig, output_path)
+        if show:
+            plt.show()
+        plt.close(fig)
+
+
+def plot_infidelity(
+    results: Dict[str, ModeResults],
+    *,
+    output_path: Optional[str | Path] = None,
+    show: bool = False,
+) -> None:
+    """Create a side-by-side infidelity plot for each mode.
+
+    Only pulse-level rows carry an infidelity, and only for the modes whose
+    output defines a state or a distribution, so modes and simulators without
+    data are dropped instead of drawn as empty panels.  Values at or below
+    :data:`MACHINE_EPS` are clipped to it and the floor is marked with a dashed
+    line.
+    """
+    data = _infidelity_series(_select_modes(results))
+    n_modes = len(data)
+    if n_modes == 0:
+        logger.info("No infidelity data to plot.")
+        return
+
+    height = max(2.6, TEXTWIDTH_IN / n_modes * 0.8)
+    with plt.rc_context(PLOT_RC):
+        fig, axes = plt.subplots(
+            1, n_modes, figsize=(TEXTWIDTH_IN, height),
+            sharey=True, squeeze=False,
+        )
+        axes = axes.flatten()
+
+        for ax, (mode, series) in zip(axes, data.items()):
+            for sim_name, (qubit_sizes, values) in series.items():
+                ax.plot(
+                    qubit_sizes,
+                    [max(v, MACHINE_EPS) for v in values],
+                    label=_label(sim_name),
+                    color=SIMULATOR_COLORS[sim_name],
+                    linestyle="-",
+                    marker="o",
+                    alpha=0.9,
+                )
+
+            all_qubit_sizes = sorted({q for qs, _ in series.values() for q in qs})
+            ax.axhline(MACHINE_EPS, color="0.4", linestyle="--", linewidth=1.0)
+            ax.set_xlabel("n Qubits")
+            ax.set_title(mode.capitalize())
+            ax.set_yscale("log")
+            _set_integer_xticks(ax, all_qubit_sizes)
+            style_axes(ax)
+
+        axes[0].set_ylabel("Infidelity $1 - F$")
         fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 

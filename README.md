@@ -169,6 +169,7 @@ Results are written to the `benchmarking_results/` directory:
 - `benchmarks-<identifier>.csv` — Raw timing data (mean and std in ms per simulator/mode/qubit-count combination)
 - `benchmarks-<identifier>-ratio.pdf` — Time-ratio plot (each competitor vs JAQSI)
 - `benchmarks-<identifier>-absolute.pdf` — Absolute timing plot per mode
+- `benchmarks-<identifier>-infidelity.pdf` — Pulse infidelity per mode (pulse-level runs only)
 
 Runs support automatic recovery: if a run is interrupted, re-running with the same `output.identifier` will skip already-completed combinations.
 
@@ -181,6 +182,8 @@ Each pulse simulator is scored against its own framework's gate-level adapter wh
 The fidelity is normalised by the norms of both operands. Without that normalisation the ODE solvers' norm drift, which reaches $10^{-7}$ for the looser configurations, dominates the result and can even push $1 - F$ negative. Because infidelity grows with the square of the state error, an amplitude deviation of $10^{-7}$ registers as roughly $10^{-14}$, close to the double-precision floor.
 
 The column is written for the `probs`, `state` and `density` modes and left empty for `expval`, whose output is not a state. In `probs` mode it is the classical fidelity of the measurement distributions; in `state` and `density` mode it is the quantum state fidelity.
+
+The infidelity plot shows $1 - F$ against the qubit count, one subplot per mode, on a logarithmic axis. Modes without a recorded infidelity are omitted rather than drawn empty, so a gate-level run produces no such figure. Values at or below the double-precision floor $\varepsilon = 2.22 \times 10^{-16}$ are clipped to it, marked by a dashed line, since a pulse result that matches the reference exactly cannot be placed on a logarithmic axis.
 
 ## JAQSI Performance Profiling
 

@@ -13,7 +13,26 @@ from benchmark.visualize import (
     load_results,
     plot_ratio,
     plot_absolute,
+    plot_infidelity,
 )
+
+
+def _write_pulse_csv(path: Path) -> Path:
+    """Write a minimal pulse-level CSV carrying an infidelity column."""
+    import csv
+    from benchmark.runner import CSV_COLUMNS
+
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(CSV_COLUMNS)
+        for q in (2, 3):
+            # expval leaves the column empty, state fills it (including a zero).
+            w.writerow((q, "expval", "jaqsi_pulse", "1.0", "0.1", 1, 10, ""))
+            w.writerow((q, "expval", "qutip_pulse", "4.0", "0.2", 1, 10, ""))
+            w.writerow((q, "state", "jaqsi_pulse", "1.0", "0.1", 1, 10,
+                        "0.000000e+00" if q == 2 else "2.220446e-16"))
+            w.writerow((q, "state", "qutip_pulse", "4.0", "0.2", 1, 10, "1.1e-14"))
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +62,20 @@ class TestLoadResults:
         assert probs.simulators["pennylane"].mean_ms[0] == pytest.approx(3.0)
         assert probs.simulators["qiskit"].mean_ms[0] == pytest.approx(4.0)
         assert probs.simulators["qibo"].mean_ms[0] == pytest.approx(3.5)
+
+    def test_infidelity_absent_column(self, sample_csv: Path):
+        """A gate-level CSV without the column yields None everywhere."""
+        results = load_results(sample_csv)
+        st = results["probs"].simulators["jaqsi"]
+        assert st.infidelity == [None] * len(st.qubit_sizes)
+
+    def test_infidelity_parsed(self, tmp_path: Path):
+        results = load_results(_write_pulse_csv(tmp_path / "pulse.csv"))
+        assert results["expval"].simulators["jaqsi_pulse"].infidelity == [None, None]
+        assert results["state"].simulators["qutip_pulse"].infidelity == [
+            pytest.approx(1.1e-14),
+            pytest.approx(1.1e-14),
+        ]
 
     def test_file_not_found(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):
@@ -117,6 +150,21 @@ class TestPlotting:
         assert png.exists()
         assert png.stat().st_size > 0
         assert not out.with_suffix(".pdf").exists()
+
+    def test_plot_infidelity_saves_file(self, tmp_path: Path):
+        results = load_results(_write_pulse_csv(tmp_path / "pulse.csv"))
+        out = tmp_path / "infidelity.pgf"
+        plot_infidelity(results, output_path=out)
+        png = out.with_suffix(".png")
+        assert png.exists()
+        assert png.stat().st_size > 0
+
+    def test_plot_infidelity_no_data(self, sample_csv: Path, tmp_path: Path):
+        """A gate-level result file has no infidelity, so no figure is written."""
+        results = load_results(sample_csv)
+        out = tmp_path / "infidelity.pgf"
+        plot_infidelity(results, output_path=out)
+        assert not out.with_suffix(".png").exists()
 
     def test_plot_ratio_empty_results(self, tmp_path: Path):
         """Plotting with no data should not crash."""

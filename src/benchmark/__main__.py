@@ -63,7 +63,13 @@ def main(argv: list[str] | None = None) -> None:
     args, overrides = parser.parse_known_args(argv)
 
     from benchmark.config import load_config
-    from benchmark.visualize import load_results, plot_ratio, plot_absolute, print_summary
+    from benchmark.visualize import (
+        load_results,
+        plot_ratio,
+        plot_absolute,
+        plot_infidelity,
+        print_summary,
+    )
 
     if args.visualize_only:
         csv_path = Path(args.visualize_only)
@@ -79,6 +85,11 @@ def main(argv: list[str] | None = None) -> None:
         plot_absolute(
             results,
             output_path=csv_path.parent / f"{stem}-absolute.pgf",
+            show=args.show,
+        )
+        plot_infidelity(
+            results,
+            output_path=csv_path.parent / f"{stem}-infidelity.pgf",
             show=args.show,
         )
         return
@@ -107,6 +118,11 @@ def main(argv: list[str] | None = None) -> None:
         plot_absolute(
             results,
             output_path=csv_path.parent / f"{csv_path.stem}-absolute.pgf",
+            show=args.show,
+        )
+        plot_infidelity(
+            results,
+            output_path=csv_path.parent / f"{csv_path.stem}-infidelity.pgf",
             show=args.show,
         )
 
