@@ -29,8 +29,8 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
 
         def circuit(phi: float) -> None:
             for i in range(n_qubits):
-                Gates.H(wires=i, gate_mode="pulse")
+                Gates.H(wires=i, pulse=True)
             for i in range(n_qubits):
-                Gates.CRX(w=phi, wires=[i, (i + 1) % n_qubits], gate_mode="pulse")
+                Gates.CRX(w=phi, wires=[i, (i + 1) % n_qubits], pulse=True)
 
         self._script = Script(f=circuit)
