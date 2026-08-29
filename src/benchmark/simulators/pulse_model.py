@@ -7,7 +7,7 @@ decomposition.  This module restates that sequence for the benchmark circuit
 coefficient callables, so that every simulator adapter integrates the identical
 ODE sequence rather than its own pulse model.
 
-The transcription mirrors ``qml_essentials.pulses`` with the shipped defaults,
+The transcription mirrors ``jaqsi.pulses`` with the shipped defaults,
 i.e. the ``drag`` envelope with the rotating-wave approximation enabled.  Under
 the RWA the carrier drops out of the coefficients, leaving
 
@@ -28,7 +28,7 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 
 # Calibrated drag parameters $(A, \beta, \sigma)$ and gate durations, taken
-# from ``PulseEnvelope.REGISTRY`` in qml_essentials.
+# from ``PulseEnvelope.REGISTRY`` in jaqsi.
 RX_DRAG: Tuple[float, float, float] = (
     0.326562746114197,
     0.4002767596709071,

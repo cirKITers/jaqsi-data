@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from qml_essentials.jaqsi import Script
-from qml_essentials.operations import H, CRX, PauliZ
+from jaqsi import Gates, PauliZ, Script
 
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 
@@ -27,9 +26,9 @@ class JaqsiBenchmark(SimulatorBenchmark):
 
         def circuit(phi: float) -> None:
             for i in range(n_qubits):
-                H(wires=i)
+                Gates.H(wires=i)
             for i in range(n_qubits):
-                CRX(phi, wires=[i, (i + 1) % n_qubits])
+                Gates.CRX(w=phi, wires=[i, (i + 1) % n_qubits])
 
         self._script = Script(f=circuit)
 

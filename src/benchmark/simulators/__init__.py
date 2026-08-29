@@ -2,7 +2,7 @@
 
 
 Concrete simulators are imported lazily to avoid hard failures when
-optional backends (e.g. ``qml_essentials``, ``qiskit``) are not installed.
+optional backends (e.g. ``jaqsi``, ``qiskit``) are not installed.
 """
 
 import importlib

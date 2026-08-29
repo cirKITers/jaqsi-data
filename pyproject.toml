@@ -5,7 +5,7 @@ description = "Benchmarking related experiments for the JAQSI simulator"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "qml-essentials",
+    "jaqsi",
     "omegaconf>=2.3",
     "matplotlib>=3.10.8",
     "qiskit>=1.0",
@@ -36,9 +36,9 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "f94ad21120dfb19e9a1ba7803e1239961dd75ec6" }
+jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "a10214128bb8bb4ab79977ee98d80650180486c0" }
 # The dynamiqs release on PyPI (0.3.4) caps jax<0.7, which conflicts with
-# qml-essentials.  The relaxed bound (jax>=0.4.36, !=0.7.0, !=0.7.1) only
+# jaqsi.  The relaxed bound (jax>=0.4.36, !=0.7.0, !=0.7.1) only
 # exists on the development branch, so pin a commit from there.
 dynamiqs = { git = "https://github.com/dynamiqs/dynamiqs", rev = "8119714466d310621b1752f6874725f45803371c" }
 
@@ -46,7 +46,7 @@ dynamiqs = { git = "https://github.com/dynamiqs/dynamiqs", rev = "8119714466d310
 required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
-# qibojit caps psutil<6.0.0, but qml-essentials requires psutil>=7.2.2.
+# qibojit caps psutil<6.0.0, but jaqsi requires psutil>=7.2.2.
 # psutil's APIs used by qibojit (cpu_count, virtual_memory) are stable across
 # 6.x/7.x, so force the newer psutil past qibojit's stale upper bound.
 override-dependencies = ["psutil>=7.2.2"]

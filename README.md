@@ -1,6 +1,6 @@
 # JAQSI Benchmarking & Profiling Data
 
-This repo contains code to produce benchmarking and profiling results for [JAQSI](https://github.com/cirKITers/qml-essentials) comparing against the following quantum circuit simulators:
+This repo contains code to produce benchmarking and profiling results for [JAQSI](https://github.com/cirKITers/jaqsi) comparing against the following quantum circuit simulators:
 
 - [PennyLane](https://github.com/PennyLaneAI/pennylane) — Xanadu's differentiable quantum programming framework (`default.qubit` device with JAX interface)
 - [Qiskit](https://github.com/Qiskit/qiskit) — IBM's quantum computing SDK (local `Statevector` / `DensityMatrix` simulation)

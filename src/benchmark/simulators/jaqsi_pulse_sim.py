@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from qml_essentials.jaqsi import Script
-from qml_essentials.pulses import PulseGates, PulseInformation
+from jaqsi import Gates, PulseInformation, Script
 
 from benchmark.simulators.base import Mode
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
@@ -30,8 +29,8 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
 
         def circuit(phi: float) -> None:
             for i in range(n_qubits):
-                PulseGates.H(wires=i)
+                Gates.H(wires=i, gate_mode="pulse")
             for i in range(n_qubits):
-                PulseGates.CRX(phi, wires=[i, (i + 1) % n_qubits])
+                Gates.CRX(w=phi, wires=[i, (i + 1) % n_qubits], gate_mode="pulse")
 
         self._script = Script(f=circuit)
