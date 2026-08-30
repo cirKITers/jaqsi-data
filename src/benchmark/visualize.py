@@ -21,9 +21,10 @@ logger = logging.getLogger(__name__)
 REFERENCE_SIMULATOR = "jaqsi"
 REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 
-# Measurement modes to include in the generated figures.  Set to None to plot
+# Measurement modes to include in the generated figures, per simulation level.
+# A single mode keeps the paper figures one column wide.  Set to None to plot
 # every mode present in the results file.
-PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "state", "density")
+PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "density")
 
 
 # ------------------------------------------------------------------
@@ -142,10 +143,20 @@ def _compute_ratio_with_error(
 # sized to this width so they drop into ``figure*`` at their natural scale.
 TEXTWIDTH_IN = 7.16
 
+# Single-column width (inches) of the same layout.  A one-panel figure is sized
+# to it so it drops into ``figure`` inside the running text.
+COLUMNWIDTH_IN = 3.487
+
 # Double-precision floor. An infidelity at or below $\varepsilon$ means the pulse
 # result is indistinguishable from the gate-level reference, so such values are
 # clipped to it rather than dropped by the logarithmic axis.
 MACHINE_EPS = 2.220446049250313e-16
+
+
+def _figsize(n_modes: int) -> Tuple[float, float]:
+    """Figure size for *n_modes* side-by-side panels."""
+    width = COLUMNWIDTH_IN if n_modes <= 2 else TEXTWIDTH_IN
+    return width, max(2.2, width / n_modes * 0.8)
 
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
@@ -171,10 +182,12 @@ def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
 
 
 def _add_shared_legend(fig: plt.Figure, axes) -> None:
-    """Add one de-duplicated legend above the subplots.
+    """Lay out the subplots and add one de-duplicated legend above them.
 
     All subplots share the same simulators, so a single horizontal legend on
-    top is cleaner than per-axis legends overlapping the data.
+    top is cleaner than per-axis legends overlapping the data.  A single-column
+    figure is too narrow for one legend row, so the entries wrap and the
+    reserved headroom grows with the number of rows.
     """
     handles: list = []
     labels: list = []
@@ -185,14 +198,20 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
                 seen.add(label)
                 handles.append(handle)
                 labels.append(label)
-    if handles:
-        fig.legend(
-            handles,
-            labels,
-            loc="upper center",
-            ncol=min(len(labels), 6),
-            bbox_to_anchor=(0.5, 1.0),
-        )
+    if not handles:
+        fig.tight_layout()
+        return
+
+    ncol = min(len(labels), 3 if fig.get_figwidth() < 5 else 6)
+    rows = -(-len(labels) // ncol)
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.065 * rows))
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncol=ncol,
+        bbox_to_anchor=(0.5, 1.0),
+    )
 
 
 def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
@@ -212,7 +231,8 @@ def _select_modes(results: Dict[str, ModeResults]) -> Dict[str, ModeResults]:
     """Drop modes not listed in :data:`PLOT_MODES`."""
     if PLOT_MODES is None:
         return results
-    return {m: mr for m, mr in results.items() if m in PLOT_MODES}
+    # Panels follow the PLOT_MODES order, not the order found in the CSV.
+    return {m: results[m] for m in PLOT_MODES if m in results}
 
 
 def _infidelity_series(
@@ -283,10 +303,9 @@ def plot_ratio(
         logger.warning("No non-reference simulators to plot ratios for.")
         return
 
-    height = max(2.6, TEXTWIDTH_IN / n_modes * 0.8)
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
-            1, n_modes, figsize=(TEXTWIDTH_IN, height),
+            1, n_modes, figsize=_figsize(n_modes),
             sharey=True, squeeze=False,
         )
         axes = axes.flatten()
@@ -320,13 +339,13 @@ def plot_ratio(
 
             ax.axhline(1.0, color="0.4", linestyle="--", linewidth=1.0)
             ax.set_xlabel("n Qubits")
-            ax.set_title(mode.capitalize())
+            if n_modes > 1:
+                ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
             style_axes(ax)
 
         axes[0].set_ylabel(f"Time ratio vs {_label(reference)}")
-        fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
@@ -353,10 +372,9 @@ def plot_absolute(
         logger.warning("No results to plot.")
         return
 
-    height = max(2.6, TEXTWIDTH_IN / n_modes * 0.8)
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
-            1, n_modes, figsize=(TEXTWIDTH_IN, height),
+            1, n_modes, figsize=_figsize(n_modes),
             sharey=True, squeeze=False,
         )
         axes = axes.flatten()
@@ -376,13 +394,13 @@ def plot_absolute(
                 )
 
             ax.set_xlabel("n Qubits")
-            ax.set_title(mode.capitalize())
+            if n_modes > 1:
+                ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
             style_axes(ax)
 
         axes[0].set_ylabel("Time (ms)")
-        fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
@@ -412,10 +430,9 @@ def plot_infidelity(
         logger.info("No infidelity data to plot.")
         return
 
-    height = max(2.6, TEXTWIDTH_IN / n_modes * 0.8)
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
-            1, n_modes, figsize=(TEXTWIDTH_IN, height),
+            1, n_modes, figsize=_figsize(n_modes),
             sharey=True, squeeze=False,
         )
         axes = axes.flatten()
@@ -435,13 +452,13 @@ def plot_infidelity(
             all_qubit_sizes = sorted({q for qs, _ in series.values() for q in qs})
             ax.axhline(MACHINE_EPS, color="0.4", linestyle="--", linewidth=1.0)
             ax.set_xlabel("n Qubits")
-            ax.set_title(mode.capitalize())
+            if n_modes > 1:
+                ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, all_qubit_sizes)
             style_axes(ax)
 
         axes[0].set_ylabel("Infidelity $1 - F$")
-        fig.tight_layout(rect=(0, 0, 1, 0.90))
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
