@@ -11,11 +11,24 @@ from typing import Callable
 import numpy as np
 import jax.numpy as jnp
 
-from qulacs import DensityMatrix, QuantumCircuit, QuantumState
+from qulacs import (
+    DensityMatrix,
+    Observable,
+    ParametricQuantumCircuit,
+    QuantumCircuit,
+    QuantumState,
+)
 from qulacs.circuit import QuantumCircuitOptimizer
 from qulacs.gate import DenseMatrix
 
+from benchmark.circuits import CircuitSpec, Op
 from benchmark.simulators.base import SimulatorBenchmark, Mode, _endian_reverse_indices
+
+# Qulacs defines its rotations as $R_P(\theta) = e^{+i\theta P/2}$, the opposite
+# sign of the convention JAQSI, PennyLane, Qiskit and Qibo use.  Every angle
+# handed to a Qulacs rotation is negated, and gradients taken with respect to
+# those angles are negated back.
+_SIGN = -1.0
 
 
 def _rx_matrix(angle: float) -> np.ndarray:
@@ -43,18 +56,71 @@ def _make_crx_gate(control: int, target: int, angle: float):
     return crx
 
 
-def _build_circuit(n_qubits: int, phi: float) -> QuantumCircuit:
-    """Build the parametric benchmark circuit for a single phi value.
+def _angle(op: Op, sample: np.ndarray, weights: np.ndarray) -> float:
+    """Return the rotation angle of *op* as a Python float.
 
-    1. Hadamard on every qubit.
-    2. CRX(phi) in a ring: qubit i → qubit (i+1) mod n.
+    Qulacs takes plain floats, so this is the numpy counterpart of
+    :func:`benchmark.circuits.angle`, which keeps array semantics.
     """
-    circuit = QuantumCircuit(n_qubits)
-    for i in range(n_qubits):
-        circuit.add_H_gate(i)
-    for i in range(n_qubits):
-        crx = _make_crx_gate(i, (i + 1) % n_qubits, phi)
-        circuit.add_gate(crx)
+    vector = sample if op.source == "inputs" else weights
+    return float(vector[op.index])
+
+
+def _build_circuit(
+    spec: CircuitSpec, sample: np.ndarray, weights: np.ndarray
+) -> QuantumCircuit:
+    """Build the benchmark circuit of *spec* for one sample."""
+    circuit = QuantumCircuit(spec.n_qubits)
+    for op in spec.ops:
+        if op.gate == "H":
+            circuit.add_H_gate(op.wires[0])
+        elif op.gate == "RX":
+            circuit.add_RX_gate(op.wires[0], _SIGN * _angle(op, sample, weights))
+        elif op.gate == "RZ":
+            circuit.add_RZ_gate(op.wires[0], _SIGN * _angle(op, sample, weights))
+        elif op.gate == "CRX":
+            circuit.add_gate(
+                _make_crx_gate(op.wires[0], op.wires[1], _angle(op, sample, weights))
+            )
+        elif op.gate == "CNOT":
+            circuit.add_CNOT_gate(op.wires[0], op.wires[1])
+        else:
+            raise ValueError(f"Unsupported gate: {op.gate!r}")
+    return circuit
+
+
+def _build_parametric_circuit(
+    spec: CircuitSpec, sample: np.ndarray, weights: np.ndarray
+) -> ParametricQuantumCircuit:
+    """Build *spec* with the trainable rotations as parametric gates.
+
+    ``ParametricQuantumCircuit.backprop`` returns one gradient per parametric
+    gate, so only the trainable rotations are registered as parametric and the
+    data-encoding ones stay fixed.  The gradients then come back in exactly the
+    order of the trainable vector.
+    """
+    trainable = spec.trainable
+    circuit = ParametricQuantumCircuit(spec.n_qubits)
+    for op in spec.ops:
+        if op.gate == "H":
+            circuit.add_H_gate(op.wires[0])
+        elif op.gate == "CNOT":
+            circuit.add_CNOT_gate(op.wires[0], op.wires[1])
+        elif op.gate in ("RX", "RZ"):
+            theta = _SIGN * _angle(op, sample, weights)
+            if op.source == trainable:
+                adder = (
+                    circuit.add_parametric_RX_gate
+                    if op.gate == "RX"
+                    else circuit.add_parametric_RZ_gate
+                )
+                adder(op.wires[0], theta)
+            elif op.gate == "RX":
+                circuit.add_RX_gate(op.wires[0], theta)
+            else:
+                circuit.add_RZ_gate(op.wires[0], theta)
+        else:
+            raise ValueError(f"Gate {op.gate!r} has no parametric Qulacs equivalent")
     return circuit
 
 
@@ -62,42 +128,60 @@ class QulacsBenchmark(SimulatorBenchmark):
     name = "qulacs"
 
     def __init__(self) -> None:
+        self._spec: CircuitSpec | None = None
         self._mode: Mode = "probs"
         self._n_qubits: int = 0
-        self._run_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None
+        self._run_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None
+
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        if mode != "grad":
+            return True
+        # backprop differentiates parametric rotation gates.  The controlled
+        # rotations of ``crx_ring`` are built as dense matrices with an attached
+        # control qubit, which Qulacs cannot register as parametric.
+        return all(op.gate in ("H", "RX", "RZ", "CNOT") for op in spec.ops)
 
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
-        self._n_qubits = n_qubits
+    def setup(
+        self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
+    ) -> None:
+        self._spec = spec
+        self._n_qubits = spec.n_qubits
         self._mode = mode
-        self._run_fn = self._make_run_fn(mode, n_qubits, optimal_config)
+        self._run_fn = self._make_run_fn(spec, mode, optimal_config)
 
     # ------------------------------------------------------------------
     # Run function factory
     # ------------------------------------------------------------------
     def _make_run_fn(
-        self, mode: Mode, n_qubits: int, optimal_config: bool
-    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
-        """Return a callable that maps a batch of phi values to results."""
+        self, spec: CircuitSpec, mode: Mode, optimal_config: bool
+    ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+        """Return a callable that maps a batch of inputs to results."""
+
+        n_qubits = spec.n_qubits
 
         # Pre-compute the endian-reversal index permutation once.
         perm = _endian_reverse_indices(n_qubits)
 
-        def _build(phi_val: float) -> QuantumCircuit:
-            circuit = _build_circuit(n_qubits, phi_val)
+        def _build(sample: np.ndarray, weights: np.ndarray) -> QuantumCircuit:
+            circuit = _build_circuit(spec, sample, weights)
             if optimal_config:
                 # In-place gate fusion; numerically identical to the default.
                 QuantumCircuitOptimizer().optimize_light(circuit)
             return circuit
 
+        if mode == "grad":
+            return self._make_grad_fn(spec)
+
         if mode == "state":
 
-            def _run_state(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_state(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    circuit = _build(float(phi_val))
+                for sample in np.asarray(inputs):
+                    circuit = _build(sample, w)
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
                     # Reverse qubit ordering: little-endian -> big-endian
@@ -108,16 +192,16 @@ class QulacsBenchmark(SimulatorBenchmark):
 
         elif mode == "probs":
 
-            def _run_probs(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_probs(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    circuit = _build(float(phi_val))
+                for sample in np.asarray(inputs):
+                    circuit = _build(sample, w)
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
                     sv = state.get_vector()
                     # Reverse qubit ordering: little-endian -> big-endian
-                    results.append(np.abs(sv) ** 2)
-                    results[-1] = results[-1][perm]
+                    results.append((np.abs(sv) ** 2)[perm])
                 return jnp.array(np.stack(results))
 
             return _run_probs
@@ -131,10 +215,11 @@ class QulacsBenchmark(SimulatorBenchmark):
             basis = np.arange(1 << n_qubits)
             signs = 1.0 - 2.0 * ((basis[None, :] >> np.arange(n_qubits)[:, None]) & 1)
 
-            def _run_expval(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_expval(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    circuit = _build(float(phi_val))
+                for sample in np.asarray(inputs):
+                    circuit = _build(sample, w)
                     state = QuantumState(n_qubits)
                     circuit.update_quantum_state(state)
                     probs = np.abs(state.get_vector()) ** 2
@@ -145,10 +230,11 @@ class QulacsBenchmark(SimulatorBenchmark):
 
         elif mode == "density":
 
-            def _run_density(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    circuit = _build(float(phi_val))
+                for sample in np.asarray(inputs):
+                    circuit = _build(sample, w)
                     dm = DensityMatrix(n_qubits)
                     circuit.update_quantum_state(dm)
                     # Reverse qubit ordering on both axes
@@ -160,13 +246,41 @@ class QulacsBenchmark(SimulatorBenchmark):
         else:
             raise ValueError(f"Unsupported mode: {mode!r}")
 
+    def _make_grad_fn(
+        self, spec: CircuitSpec
+    ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+        """Return the analytic gradient via ``ParametricQuantumCircuit.backprop``.
+
+        The observable is the summed per-qubit Pauli-Z, matching the loss the
+        other adapters differentiate.  Qulacs labels qubit 0 as the least
+        significant bit, but a sum over all qubits is invariant under that
+        relabelling, so no reordering is needed.
+        """
+        observable = Observable(spec.n_qubits)
+        for i in range(spec.n_qubits):
+            observable.add_operator(1.0, f"Z {i}")
+
+        per_sample = spec.trainable == "inputs"
+
+        def _run_grad(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+            w = np.asarray(weights)
+            grads = []
+            for sample in np.asarray(inputs):
+                circuit = _build_parametric_circuit(spec, sample, w)
+                grads.append(_SIGN * np.asarray(circuit.backprop(observable)))
+            if per_sample:
+                return jnp.array(np.stack(grads))
+            return jnp.array(np.sum(grads, axis=0))
+
+        return _run_grad
+
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
-    def warmup(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def warmup(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs, weights)
 
-    def run(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def run(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs, weights)

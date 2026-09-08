@@ -10,11 +10,26 @@ from typing import List, Optional
 
 from omegaconf import OmegaConf, DictConfig
 
+from benchmark.circuits import FAMILIES
+
 
 @dataclass
 class QubitsConfig:
     min: int = 2
-    max: int = 16
+    max: int = 10
+
+
+@dataclass
+class CircuitConfig:
+    """Which circuit to benchmark and at which depths.
+
+    ``family`` selects a circuit from :mod:`benchmark.circuits`; ``layers``
+    lists the depths to sweep, so a run can vary depth at fixed width and
+    width at fixed depth from the same config.
+    """
+
+    family: str = "hea"
+    layers: List[int] = field(default_factory=lambda: [1])
 
 
 @dataclass
@@ -35,6 +50,8 @@ class OutputConfig:
 ALL_SIMULATORS: List[str] = [
     "jaqsi",
     "pennylane",
+    "pennylane_adjoint",
+    "pennylane_psr",
     "qiskit",
     "qibo",
     "qulacs",
@@ -49,11 +66,18 @@ ALL_SIMULATORS: List[str] = [
 class BenchmarkConfig:
     seed: int = 1000
     warmup: bool = True
+    # Threads every simulator is pinned to.  One is the single-thread regime
+    # the Yao, Qulacs and JuliVQC benchmarks report; raise it for the
+    # multi-threaded regime and report the two separately.
+    threads: int = 1
     precision: float = 1.0e-8
     optimal_config: bool = False
+    circuit: CircuitConfig = field(default_factory=CircuitConfig)
     qubits: QubitsConfig = field(default_factory=QubitsConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
-    modes: List[str] = field(default_factory=lambda: ["probs", "expval", "state", "density"])
+    modes: List[str] = field(
+        default_factory=lambda: ["expval", "state", "density", "grad"]
+    )
     simulators: List[str] = field(default_factory=lambda: list(ALL_SIMULATORS))
     output: OutputConfig = field(default_factory=OutputConfig)
 
@@ -116,5 +140,20 @@ def load_config(
             f"Unknown simulator(s): {sorted(unknown)}. "
             f"Available: {ALL_SIMULATORS}"
         )
+
+    # Validate circuit family and depths
+    if cfg.circuit.family not in FAMILIES:
+        raise ValueError(
+            f"Unknown circuit family: {cfg.circuit.family!r}. "
+            f"Available: {sorted(FAMILIES)}"
+        )
+    if not cfg.circuit.layers or any(n < 1 for n in cfg.circuit.layers):
+        raise ValueError(
+            f"circuit.layers must be a non-empty list of positive integers, "
+            f"got {cfg.circuit.layers}"
+        )
+
+    if cfg.threads < 1:
+        raise ValueError(f"threads must be at least 1, got {cfg.threads}")
 
     return cfg

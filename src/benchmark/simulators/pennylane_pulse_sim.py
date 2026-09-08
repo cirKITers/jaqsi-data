@@ -20,6 +20,7 @@ import jax.numpy as jnp
 from jax.experimental.ode import odeint
 import pennylane as qml
 
+from benchmark.circuits import PULSE_FAMILIES, CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 from benchmark.simulators.pulse_model import (
     Segment,
@@ -47,14 +48,14 @@ def _parametrized_hamiltonian(segment: Segment) -> qml.pulse.ParametrizedHamilto
     return (lambda p, t: 0.5 * drag_env(t, drag, jnp) * p) * op
 
 
-def _segment_unitary(segment: Segment, phi) -> jnp.ndarray:
+def _segment_unitary(segment: Segment, params) -> jnp.ndarray:
     """Solve $\\mathrm{d}U/\\mathrm{d}t = -i c(t) H U$ over one segment.
 
     The Hamiltonian acts on one or two wires, so only the local unitary is
     integrated rather than one over the full register.
     """
     op = jnp.asarray(segment.op)
-    coeff = make_coeff_fn(segment, phi, jnp)
+    coeff = make_coeff_fn(segment, params, jnp)
 
     def rhs(u, t):
         return -1j * coeff(t) * (op @ u)
@@ -76,14 +77,22 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
         self._mode: Mode = "probs"
         self._n_qubits: int = 0
 
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
+        # decompositions, and the pulse level measures forward simulation only.
+        return spec.family in PULSE_FAMILIES and mode != "grad"
+
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
+    def setup(
+        self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
+    ) -> None:
+        n_qubits = spec.n_qubits
         self._n_qubits = n_qubits
         self._mode = mode
 
-        segments = build_schedule(n_qubits)
+        segments = build_schedule(spec)
         dev = qml.device("default.qubit", wires=n_qubits)
 
         return_map: dict[str, Callable] = {
@@ -97,10 +106,10 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
             # Integrate each segment with jax directly and apply the resulting
             # local unitary, bypassing ParametrizedEvolution's per-call cost.
             @qml.qnode(dev, interface="jax", diff_method=None)
-            def circuit(phi):
+            def circuit(params):
                 for segment in segments:
                     qml.QubitUnitary(
-                        _segment_unitary(segment, phi), wires=segment.wires
+                        _segment_unitary(segment, params), wires=segment.wires
                     )
                 return return_map[mode]()
 
@@ -118,10 +127,10 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
             # Forward-only execution: the pulse cost is dominated by the ODE
             # solves, so the gradient infrastructure is disabled throughout.
             @qml.qnode(dev, interface="jax", diff_method=None)
-            def circuit(phi):
+            def circuit(params):
                 for hamiltonian, angle_fn, duration in evolutions:
                     qml.evolve(hamiltonian)(
-                        [angle_fn(phi)], t=duration, atol=_ATOL, rtol=_RTOL
+                        [angle_fn(params)], t=duration, atol=_ATOL, rtol=_RTOL
                     )
                 return return_map[mode]()
 
@@ -130,19 +139,19 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Execution helpers
     # ------------------------------------------------------------------
-    def _execute(self, phi_batch: jnp.ndarray) -> jnp.ndarray:
+    def _execute(self, inputs: jnp.ndarray) -> jnp.ndarray:
         # Batching is a Python loop in both configurations: ParametrizedEvolution
         # rebuilds its Hamiltonian per call, which neither vmap nor jit can
         # share, and keeping the loop makes the two paths directly comparable.
         assert self._circuit_fn is not None
         results = [
-            jnp.asarray(self._circuit_fn(float(phi_val)))
-            for phi_val in np.asarray(phi_batch)
+            jnp.asarray(self._circuit_fn(jnp.asarray(sample)))
+            for sample in np.asarray(inputs)
         ]
         return jnp.stack(results)
 
-    def warmup(self, phi: jnp.ndarray) -> jnp.ndarray:
-        return self._execute(phi)
+    def warmup(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+        return self._execute(inputs)
 
-    def run(self, phi: jnp.ndarray) -> jnp.ndarray:
-        return self._execute(phi)
+    def run(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+        return self._execute(inputs)

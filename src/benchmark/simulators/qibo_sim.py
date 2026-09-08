@@ -6,16 +6,18 @@ simulation (no external provider or API key required).
 
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
 import numpy as np
 import jax.numpy as jnp
 
-from qibo import Circuit, gates, set_backend
+from qibo import Circuit, gates, set_backend, set_threads
 from qibo.hamiltonians import SymbolicHamiltonian
 from qibo.symbols import Z
 
+from benchmark.circuits import CircuitSpec, Op
 from benchmark.simulators.base import SimulatorBenchmark, Mode
+from benchmark.threads import num_threads
 
 
 class QiboBenchmark(SimulatorBenchmark):
@@ -24,28 +26,48 @@ class QiboBenchmark(SimulatorBenchmark):
     def __init__(self) -> None:
         self._circuit: Circuit | None = None
         self._circuit_dm: Circuit | None = None
+        self._spec: CircuitSpec | None = None
         self._mode: Mode = "probs"
         self._n_qubits: int = 0
-        self._n_params: int = 0
-        self._run_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None
+        # Parametric gates in the order Qibo's ``set_parameters`` expects them.
+        self._param_ops: Tuple[Op, ...] = ()
+        self._run_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None
         self._z_hams: List[SymbolicHamiltonian] = []
+
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        # Qibo's differentiation lives in the separate qiboml package, which is
+        # not a dependency here; the forward measurements are unaffected.
+        return mode != "grad"
 
     # ------------------------------------------------------------------
     # Circuit builders
     # ------------------------------------------------------------------
-    def _build_circuit(self, n_qubits: int, *, density_matrix: bool = False) -> Circuit:
-        """Build the parametric benchmark circuit."""
-        c = Circuit(n_qubits, density_matrix=density_matrix)
-        for i in range(n_qubits):
-            c.add(gates.H(i))
-        for i in range(n_qubits):
-            c.add(gates.CRX(i, (i + 1) % n_qubits, theta=0.0))
+    def _build_circuit(
+        self, spec: CircuitSpec, *, density_matrix: bool = False
+    ) -> Circuit:
+        """Build the parametric benchmark circuit of *spec*."""
+        c = Circuit(spec.n_qubits, density_matrix=density_matrix)
+        for op in spec.ops:
+            if op.gate == "H":
+                c.add(gates.H(op.wires[0]))
+            elif op.gate == "RX":
+                c.add(gates.RX(op.wires[0], theta=0.0))
+            elif op.gate == "RZ":
+                c.add(gates.RZ(op.wires[0], theta=0.0))
+            elif op.gate == "CRX":
+                c.add(gates.CRX(op.wires[0], op.wires[1], theta=0.0))
+            elif op.gate == "CNOT":
+                c.add(gates.CNOT(op.wires[0], op.wires[1]))
+            else:
+                raise ValueError(f"Unsupported gate: {op.gate!r}")
         return c
 
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
+    def setup(
+        self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
+    ) -> None:
         # Backend selection is global to the process but only affects Qibo.
         # Reset to numpy on the default path so a prior optimal run does not leak.
         if optimal_config:
@@ -53,61 +75,74 @@ class QiboBenchmark(SimulatorBenchmark):
         else:
             set_backend("numpy")
 
-        self._n_qubits = n_qubits
+        # qibojit's constructor pins numba to one thread per available core,
+        # ignoring the environment, so it is the one backend that has to be
+        # pinned after the fact.  Setting it before construction is not an
+        # option: NUMBA_NUM_THREADS is a cap, and a cap below the core count
+        # makes that same constructor raise.
+        threads = num_threads()
+        if threads is not None:
+            set_threads(threads)
+
+        self._spec = spec
+        self._n_qubits = spec.n_qubits
         self._mode = mode
-        self._n_params = n_qubits  # one CRX per qubit
+        self._param_ops = tuple(op for op in spec.ops if op.source is not None)
 
         if mode == "density":
-            self._circuit_dm = self._build_circuit(n_qubits, density_matrix=True)
+            self._circuit_dm = self._build_circuit(spec, density_matrix=True)
             self._circuit = None
         else:
-            self._circuit = self._build_circuit(n_qubits)
+            self._circuit = self._build_circuit(spec)
             self._circuit_dm = None
 
         if mode == "expval":
             self._z_hams = [
-                SymbolicHamiltonian(Z(i), nqubits=n_qubits)
-                for i in range(n_qubits)
+                SymbolicHamiltonian(Z(i), nqubits=spec.n_qubits)
+                for i in range(spec.n_qubits)
             ]
 
-        self._run_fn = self._make_run_fn(mode, n_qubits)
+        self._run_fn = self._make_run_fn(mode)
+
+    def _parameters(self, sample: np.ndarray, weights: np.ndarray) -> List[float]:
+        """Return the parametric gate angles in circuit order."""
+        vectors = {"inputs": sample, "weights": weights}
+        return [float(vectors[op.source][op.index]) for op in self._param_ops]
 
     # ------------------------------------------------------------------
     # Run function factory
     # ------------------------------------------------------------------
-    def _make_run_fn(
-        self, mode: Mode, n_qubits: int
-    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
-        """Return a callable that maps a batch of phi values to results."""
+    def _make_run_fn(self, mode: Mode) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+        """Return a callable that maps a batch of inputs to results."""
 
         if mode == "state":
-            def _run_state(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_state(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    params = [float(phi_val)] * self._n_params
-                    self._circuit.set_parameters(params)
+                for sample in np.asarray(inputs):
+                    self._circuit.set_parameters(self._parameters(sample, w))
                     result = self._circuit()
                     results.append(np.array(result.state()))
                 return jnp.array(np.stack(results))
             return _run_state
 
         elif mode == "probs":
-            def _run_probs(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_probs(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    params = [float(phi_val)] * self._n_params
-                    self._circuit.set_parameters(params)
+                for sample in np.asarray(inputs):
+                    self._circuit.set_parameters(self._parameters(sample, w))
                     result = self._circuit()
                     results.append(np.array(result.probabilities()))
                 return jnp.array(np.stack(results))
             return _run_probs
 
         elif mode == "expval":
-            def _run_expval(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_expval(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    params = [float(phi_val)] * self._n_params
-                    self._circuit.set_parameters(params)
+                for sample in np.asarray(inputs):
+                    self._circuit.set_parameters(self._parameters(sample, w))
                     result = self._circuit()
                     state = result.state()
                     evs = [
@@ -119,11 +154,11 @@ class QiboBenchmark(SimulatorBenchmark):
             return _run_expval
 
         elif mode == "density":
-            def _run_density(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    params = [float(phi_val)] * self._n_params
-                    self._circuit_dm.set_parameters(params)
+                for sample in np.asarray(inputs):
+                    self._circuit_dm.set_parameters(self._parameters(sample, w))
                     result = self._circuit_dm()
                     results.append(np.array(result.state()))
                 return jnp.array(np.stack(results))
@@ -135,10 +170,10 @@ class QiboBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
-    def warmup(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def warmup(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs, weights)
 
-    def run(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def run(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs, weights)

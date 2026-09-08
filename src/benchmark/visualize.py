@@ -23,8 +23,10 @@ REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 
 # Measurement modes to include in the generated figures, per simulation level.
 # A single mode keeps the paper figures one column wide.  Set to None to plot
-# every mode present in the results file.
-PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "density")
+# every mode present in the results file.  ``grad`` is included so the gradient
+# workload is plotted alongside the forward ones; a pulse-level file has no
+# such rows and simply drops the panel.
+PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "density", "grad")
 
 
 # ------------------------------------------------------------------
@@ -59,28 +61,72 @@ class ModeResults:
 # Data loading
 # ------------------------------------------------------------------
 
-def load_results(csv_path: str | Path) -> Dict[str, ModeResults]:
+def _slice_of(row: dict) -> Tuple[str, str, str, str]:
+    """Return the ``(circuit, n_layers, batch_size, threads)`` slice of a row."""
+    return (
+        row.get("circuit", ""),
+        row.get("n_layers", ""),
+        row.get("batch_size", ""),
+        row.get("threads", ""),
+    )
+
+
+def load_results(
+    csv_path: str | Path,
+    *,
+    circuit: Optional[str] = None,
+    n_layers: Optional[int] = None,
+    batch_size: Optional[int] = None,
+    threads: Optional[int] = None,
+) -> Dict[str, ModeResults]:
     """Parse a benchmark CSV into per-mode result containers.
 
     Returns a dict mapping mode name → :class:`ModeResults`.
-    Only qubit counts where *all* simulators present in the file have
-    data are included (so partial runs are handled gracefully).
+    Only qubit counts where every simulator present *in that mode* has data
+    are included, so partial runs are handled gracefully and an adapter that
+    implements only some modes does not empty the others.
+
+    These figures plot runtime against qubit count, so a file sweeping several
+    circuits, depths, batch sizes or thread counts has to be narrowed to one
+    slice first.  Unset filters keep the first slice the file contains, which
+    is the whole file for a single-slice run.
     """
     csv_path = Path(csv_path)
     if not csv_path.exists():
         raise FileNotFoundError(f"Results file not found: {csv_path}")
 
+    wanted = (
+        "" if circuit is None else str(circuit),
+        "" if n_layers is None else str(n_layers),
+        "" if batch_size is None else str(batch_size),
+        "" if threads is None else str(threads),
+    )
+
     # First pass: collect rows keyed by (n_qubits, mode, simulator)
     raw: Dict[Tuple[int, str], Dict[str, dict]] = {}
-    all_simulators: set[str] = set()
+    # Simulators are tracked per mode: an adapter that only implements some
+    # modes, such as a gradient-only one, must not make every other mode look
+    # incomplete.
+    simulators_by_mode: Dict[str, set[str]] = {}
+    selected: Optional[Tuple[str, str, str, str]] = None
+    dropped: set[Tuple[str, str, str, str]] = set()
     with open(csv_path, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            row_slice = _slice_of(row)
+            if any(w and w != v for w, v in zip(wanted, row_slice)):
+                continue
+            if selected is None:
+                selected = row_slice
+            elif row_slice != selected:
+                dropped.add(row_slice)
+                continue
+
             key = (int(row["n_qubits"]), row["mode"])
             if key not in raw:
                 raw[key] = {}
             sim_name = row["simulator"]
-            all_simulators.add(sim_name)
+            simulators_by_mode.setdefault(row["mode"], set()).add(sim_name)
             raw_inf = row.get("infidelity", "")
             raw[key][sim_name] = {
                 "mean_ms": float(row["mean_ms"]),
@@ -88,12 +134,20 @@ def load_results(csv_path: str | Path) -> Dict[str, ModeResults]:
                 "infidelity": float(raw_inf) if raw_inf else None,
             }
 
+    if dropped:
+        logger.warning(
+            f"{csv_path.name} holds several sweep slices; plotting "
+            f"circuit/layers/batch/threads = {selected} and ignoring "
+            f"{sorted(dropped)}."
+        )
+
     # Second pass: organise by mode, keeping only complete qubit rows
     modes_seen: Dict[str, ModeResults] = {}
     for (n_qubits, mode) in sorted(raw.keys()):
         entry = raw[(n_qubits, mode)]
-        # Only include rows where every simulator seen in the file has data
-        if not all_simulators.issubset(entry.keys()):
+        mode_simulators = simulators_by_mode[mode]
+        # Only include rows where every simulator seen in this mode has data
+        if not mode_simulators.issubset(entry.keys()):
             continue
 
         if mode not in modes_seen:
@@ -101,7 +155,7 @@ def load_results(csv_path: str | Path) -> Dict[str, ModeResults]:
         mr = modes_seen[mode]
         mr.qubit_sizes.append(n_qubits)
 
-        for sim_name in sorted(all_simulators):
+        for sim_name in sorted(mode_simulators):
             if sim_name not in mr.simulators:
                 mr.simulators[sim_name] = SimTimings()
             st = mr.simulators[sim_name]

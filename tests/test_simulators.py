@@ -8,12 +8,22 @@ parametrised over all available backends.
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+# Enable 64-bit precision for JAX (matches the benchmark runner).  Without it
+# the parameter arrays are float32 and the normalisation checks below fail on
+# rounding alone.
+jax.config.update("jax_enable_x64", True)
+
+from benchmark.circuits import build_spec
 from benchmark.simulators.base import BenchmarkResult
-from benchmark.simulators.pennylane_sim import PennylaneBenchmark
+from benchmark.simulators.pennylane_sim import (
+    PennylaneAdjointBenchmark,
+    PennylaneBenchmark,
+)
 from benchmark.simulators.qiskit_sim import QiskitBenchmark
 from benchmark.simulators.qibo_sim import QiboBenchmark
 from benchmark.simulators.qulacs_sim import QulacsBenchmark
@@ -23,18 +33,30 @@ from benchmark.simulators.qulacs_sim import QulacsBenchmark
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_phi_batch(batch_size: int = 1) -> jnp.ndarray:
-    """Return a small batch of phi values."""
-    return jnp.array([0.5] * batch_size)
+def _make_params(spec, batch_size: int = 1):
+    """Return a deterministic ``(inputs, weights)`` pair for *spec*."""
+    inputs = jnp.full((batch_size, spec.n_inputs), 0.5)
+    weights = jnp.full((spec.n_weights,), 0.3)
+    return inputs, weights
+
+
+def _run(sim, spec, batch_size: int = 1):
+    """Execute *sim* on *spec* with the deterministic parameters."""
+    return sim.run(*_make_params(spec, batch_size))
 
 
 # All simulator classes under test.
 _ALL_SIMULATORS = [
     pytest.param(PennylaneBenchmark, id="pennylane"),
+    pytest.param(PennylaneAdjointBenchmark, id="pennylane_adjoint"),
     pytest.param(QiskitBenchmark, id="qiskit"),
     pytest.param(QiboBenchmark, id="qibo"),
     pytest.param(QulacsBenchmark, id="qulacs"),
 ]
+
+# Both circuit families, exercised at a depth greater than one so that the
+# layer index takes part in the parameter bookkeeping.
+_FAMILIES = ["crx_ring", "hea"]
 
 
 # ---------------------------------------------------------------------------
@@ -73,27 +95,31 @@ class TestSimulatorImport:
 
 class TestStateMode:
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_state_returns_correct_shape(self, sim_cls):
+    def test_state_returns_correct_shape(self, sim_cls, family):
         sim = sim_cls()
-        n_qubits = 2
-        sim.setup(n_qubits, "state")
-        result = sim.run(_make_phi_batch(batch_size=1))
-        assert result.shape == (1, 2**n_qubits)
+        spec = build_spec(family, 2, 2)
+        sim.setup(spec, "state")
+        result = _run(sim, spec)
+        assert result.shape == (1, 2**spec.n_qubits)
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_state_batch(self, sim_cls):
+    def test_state_batch(self, sim_cls, family):
         sim = sim_cls()
-        n_qubits = 2
-        sim.setup(n_qubits, "state")
-        result = sim.run(_make_phi_batch(batch_size=3))
-        assert result.shape == (3, 2**n_qubits)
+        spec = build_spec(family, 2, 2)
+        sim.setup(spec, "state")
+        result = _run(sim, spec, batch_size=3)
+        assert result.shape == (3, 2**spec.n_qubits)
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_state_is_normalized(self, sim_cls):
+    def test_state_is_normalized(self, sim_cls, family):
         sim = sim_cls()
-        sim.setup(3, "state")
-        result = sim.run(_make_phi_batch(batch_size=1))
+        spec = build_spec(family, 3, 2)
+        sim.setup(spec, "state")
+        result = _run(sim, spec)
         norm = float(jnp.sum(jnp.abs(result[0]) ** 2))
         assert norm == pytest.approx(1.0, abs=1e-10)
 
@@ -104,26 +130,31 @@ class TestStateMode:
 
 class TestProbsMode:
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_probs_returns_correct_shape(self, sim_cls):
+    def test_probs_returns_correct_shape(self, sim_cls, family):
         sim = sim_cls()
-        n_qubits = 2
-        sim.setup(n_qubits, "probs")
-        result = sim.run(_make_phi_batch(batch_size=1))
-        assert result.shape == (1, 2**n_qubits)
+        spec = build_spec(family, 2, 2)
+        sim.setup(spec, "probs")
+        result = _run(sim, spec)
+        assert result.shape == (1, 2**spec.n_qubits)
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_probs_sum_to_one(self, sim_cls):
+    def test_probs_sum_to_one(self, sim_cls, family):
         sim = sim_cls()
-        sim.setup(3, "probs")
-        result = sim.run(_make_phi_batch(batch_size=1))
+        spec = build_spec(family, 3, 2)
+        sim.setup(spec, "probs")
+        result = _run(sim, spec)
         assert float(jnp.sum(result[0])) == pytest.approx(1.0, abs=1e-10)
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_probs_non_negative(self, sim_cls):
+    def test_probs_non_negative(self, sim_cls, family):
         sim = sim_cls()
-        sim.setup(2, "probs")
-        result = sim.run(_make_phi_batch(batch_size=2))
+        spec = build_spec(family, 2, 2)
+        sim.setup(spec, "probs")
+        result = _run(sim, spec, batch_size=2)
         assert jnp.all(result >= 0)
 
 
@@ -133,24 +164,27 @@ class TestProbsMode:
 
 class TestExpvalMode:
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_expval_returns_correct_shape(self, sim_cls):
+    def test_expval_returns_correct_shape(self, sim_cls, family):
         sim = sim_cls()
-        n_qubits = 3
-        sim.setup(n_qubits, "expval")
-        result = jnp.asarray(sim.run(_make_phi_batch(batch_size=1)))
+        spec = build_spec(family, 3, 2)
+        sim.setup(spec, "expval")
+        result = jnp.asarray(_run(sim, spec))
         # PennyLane returns (n_obs, batch); others return (batch, n_obs).
-        if sim.name == "pennylane":
-            assert result.shape == (n_qubits, 1)
+        if sim.name.startswith("pennylane"):
+            assert result.shape == (spec.n_qubits, 1)
         else:
-            assert result.shape == (1, n_qubits)
+            assert result.shape == (1, spec.n_qubits)
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_expval_in_valid_range(self, sim_cls):
+    def test_expval_in_valid_range(self, sim_cls, family):
         """Z expectation values must be in [-1, 1]."""
         sim = sim_cls()
-        sim.setup(2, "expval")
-        result = jnp.asarray(sim.run(_make_phi_batch(batch_size=1)))
+        spec = build_spec(family, 2, 2)
+        sim.setup(spec, "expval")
+        result = jnp.asarray(_run(sim, spec))
         assert jnp.all(result >= -1.0 - 1e-10)
         assert jnp.all(result <= 1.0 + 1e-10)
 
@@ -161,28 +195,33 @@ class TestExpvalMode:
 
 class TestDensityMode:
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_density_returns_correct_shape(self, sim_cls):
+    def test_density_returns_correct_shape(self, sim_cls, family):
         sim = sim_cls()
-        n_qubits = 2
-        dim = 2**n_qubits
-        sim.setup(n_qubits, "density")
-        result = sim.run(_make_phi_batch(batch_size=1))
+        spec = build_spec(family, 2, 2)
+        dim = 2**spec.n_qubits
+        sim.setup(spec, "density")
+        result = _run(sim, spec)
         assert result.shape == (1, dim, dim)
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_density_trace_is_one(self, sim_cls):
+    def test_density_trace_is_one(self, sim_cls, family):
         sim = sim_cls()
-        sim.setup(2, "density")
-        result = sim.run(_make_phi_batch(batch_size=1))
+        spec = build_spec(family, 2, 2)
+        sim.setup(spec, "density")
+        result = _run(sim, spec)
         trace = float(jnp.trace(result[0]).real)
         assert trace == pytest.approx(1.0, abs=1e-10)
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_density_is_hermitian(self, sim_cls):
+    def test_density_is_hermitian(self, sim_cls, family):
         sim = sim_cls()
-        sim.setup(2, "density")
-        result = sim.run(_make_phi_batch(batch_size=1))
+        spec = build_spec(family, 2, 2)
+        sim.setup(spec, "density")
+        result = _run(sim, spec)
         dm = result[0]
         np.testing.assert_allclose(dm, dm.conj().T, atol=1e-10)
 
@@ -197,10 +236,11 @@ class TestUnsupportedMode:
     def test_unsupported_mode_raises(self, sim_cls):
         """An invalid mode must raise during setup or, at latest, during run."""
         sim = sim_cls()
+        spec = build_spec("hea", 2, 1)
         with pytest.raises(Exception):
-            sim.setup(2, "invalid_mode")
+            sim.setup(spec, "invalid_mode")
             # Some simulators defer the error to run time.
-            sim.run(_make_phi_batch(batch_size=1))
+            _run(sim, spec)
 
 
 # ---------------------------------------------------------------------------
@@ -211,33 +251,40 @@ class TestHarnessIntegration:
     """Verify every simulator works with the base-class benchmark() method."""
 
     @staticmethod
-    def _make_phis(n_iters: int = 3, batch_size: int = 1) -> jnp.ndarray:
-        return jnp.ones((n_iters + 1, batch_size)) * 0.5
+    def _make_sweep(spec, n_iters: int = 3, batch_size: int = 1):
+        inputs = jnp.ones((n_iters + 1, batch_size, spec.n_inputs)) * 0.5
+        weights = jnp.ones((n_iters + 1, spec.n_weights)) * 0.3
+        return inputs, weights
 
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
     def test_benchmark_returns_result(self, sim_cls):
         sim = sim_cls()
-        result = sim.benchmark(n_qubits=2, mode="probs", all_phis=self._make_phis())
+        spec = build_spec("hea", 2, 2)
+        inputs, weights = self._make_sweep(spec)
+        result = sim.benchmark(
+            spec=spec, mode="probs", all_inputs=inputs, all_weights=weights
+        )
         assert isinstance(result, BenchmarkResult)
         assert result.simulator == sim.name
         assert result.mode == "probs"
         assert result.n_qubits == 2
+        assert result.circuit == "hea"
+        assert result.n_layers == 2
         assert result.mean_ms >= 0
         assert result.std_ms >= 0
 
+    @pytest.mark.parametrize("do_warmup", [True, False])
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_benchmark_warmup(self, sim_cls):
+    def test_benchmark_warmup(self, sim_cls, do_warmup):
         sim = sim_cls()
+        spec = build_spec("hea", 2, 2)
+        inputs, weights = self._make_sweep(spec)
         result = sim.benchmark(
-            n_qubits=2, mode="state", all_phis=self._make_phis(), do_warmup=True,
-        )
-        assert result.raw_output is not None
-
-    @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
-    def test_benchmark_no_warmup(self, sim_cls):
-        sim = sim_cls()
-        result = sim.benchmark(
-            n_qubits=2, mode="state", all_phis=self._make_phis(), do_warmup=False,
+            spec=spec,
+            mode="state",
+            all_inputs=inputs,
+            all_weights=weights,
+            do_warmup=do_warmup,
         )
         assert result.raw_output is not None
 
@@ -249,17 +296,17 @@ class TestHarnessIntegration:
 class TestConfigIntegration:
     """Verify all simulators are accepted by the configuration system."""
 
-    def test_all_simulators_in_config(self):
+    @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
+    def test_all_simulators_in_config(self, sim_cls):
         from benchmark.config import ALL_SIMULATORS
-        for sim_cls in [PennylaneBenchmark, QiskitBenchmark, QiboBenchmark, QulacsBenchmark]:
-            assert sim_cls().name in ALL_SIMULATORS
+        assert sim_cls().name in ALL_SIMULATORS
 
-    def test_config_accepts_each_simulator(self):
+    @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
+    def test_config_accepts_each_simulator(self, sim_cls):
         from benchmark.config import load_config
-        for sim_cls in [PennylaneBenchmark, QiskitBenchmark, QiboBenchmark, QulacsBenchmark]:
-            name = sim_cls().name
-            cfg = load_config(overrides=[f"simulators=[{name}]"])
-            assert cfg.simulators == [name]
+        name = sim_cls().name
+        cfg = load_config(overrides=[f"simulators=[{name}]"])
+        assert cfg.simulators == [name]
 
 
 # ---------------------------------------------------------------------------
@@ -269,17 +316,19 @@ class TestConfigIntegration:
 class TestOptimalConfigEquivalence:
     """optimal_config must not change numerical results, only performance."""
 
+    @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
     @pytest.mark.parametrize("mode", ["probs", "expval", "state", "density"])
-    def test_optimal_matches_default(self, sim_cls, mode):
-        phi = _make_phi_batch(batch_size=1)
+    def test_optimal_matches_default(self, sim_cls, mode, family):
+        spec = build_spec(family, 2, 2)
+        inputs, weights = _make_params(spec)
 
         default_sim = sim_cls()
-        default_sim.setup(2, mode, optimal_config=False)
-        default_out = np.asarray(default_sim.run(phi))
+        default_sim.setup(spec, mode, optimal_config=False)
+        default_out = np.asarray(default_sim.run(inputs, weights))
 
         optimal_sim = sim_cls()
-        optimal_sim.setup(2, mode, optimal_config=True)
-        optimal_out = np.asarray(optimal_sim.run(phi))
+        optimal_sim.setup(spec, mode, optimal_config=True)
+        optimal_out = np.asarray(optimal_sim.run(inputs, weights))
 
         np.testing.assert_allclose(default_out, optimal_out, atol=1e-8)

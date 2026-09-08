@@ -23,14 +23,58 @@ from benchmark.simulators.base import BenchmarkResult
 from benchmark.config import load_config
 
 
+def _result(
+    simulator: str,
+    mode: str,
+    n_qubits: int,
+    raw_output,
+    *,
+    circuit: str = "hea",
+    n_layers: int = 1,
+    batch_size: int = 1,
+    n_iters: int = 10,
+    threads: int = 1,
+    mean_ms: float = 1.0,
+    std_ms: float = 0.1,
+) -> BenchmarkResult:
+    """Build a BenchmarkResult, defaulting the fields a test does not care about."""
+    return BenchmarkResult(
+        simulator=simulator,
+        mode=mode,
+        n_qubits=n_qubits,
+        circuit=circuit,
+        n_layers=n_layers,
+        batch_size=batch_size,
+        n_iters=n_iters,
+        threads=threads,
+        mean_ms=mean_ms,
+        std_ms=std_ms,
+        raw_output=raw_output,
+    )
+
+
 # ---------------------------------------------------------------------------
 # _csv_path
 # ---------------------------------------------------------------------------
 
 class TestCsvPath:
-    def test_path_format(self):
+    def test_path_carries_identifier_and_commit(self):
+        """The commit tags the file so results identify the code that made them."""
+        from benchmark.runner import _git_commit
+
         cfg = load_config(overrides=["output.dir=out", "output.identifier=abc123"])
-        assert _csv_path(cfg) == Path("out/benchmarks-abc123.csv")
+        path = _csv_path(cfg)
+        assert path.parent == Path("out")
+        assert path.name.startswith("benchmarks-abc123-")
+        assert path.name.endswith(".csv")
+        assert _git_commit() in path.name
+
+    def test_commit_is_a_short_sha_or_unknown(self):
+        from benchmark.runner import _git_commit
+
+        commit = _git_commit()
+        base = commit[: -len("-dirty")] if commit.endswith("-dirty") else commit
+        assert commit == "unknown" or len(base) >= 7
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +96,9 @@ class TestEnsureCsv:
         _ensure_csv(p)
         # Write a data row
         with open(p, "a", newline="") as f:
-            csv.writer(f).writerow(["2", "probs", "jaqsi", "1.0", "0.1", "1", "10"])
+            csv.writer(f).writerow(
+                ["hea", "1", "2", "probs", "jaqsi", "1.0", "0.1", "1", "10", "1"]
+            )
         # Call again — should NOT truncate
         _ensure_csv(p)
         with open(p) as f:
@@ -66,16 +112,7 @@ class TestEnsureCsv:
 
 class TestAppendAndLoadCompleted:
     def _make_result(self, sim: str = "jaqsi", mode: str = "probs", n_qubits: int = 2):
-        return BenchmarkResult(
-            simulator=sim,
-            mode=mode,
-            n_qubits=n_qubits,
-            batch_size=1,
-            n_iters=10,
-            mean_ms=1.5,
-            std_ms=0.1,
-            raw_output=jnp.array([0.0]),
-        )
+        return _result(sim, mode, n_qubits, jnp.array([0.0]), mean_ms=1.5)
 
     def test_round_trip(self, tmp_path: Path):
         p = tmp_path / "results.csv"
@@ -87,9 +124,29 @@ class TestAppendAndLoadCompleted:
         _append_row(p, r2)
 
         completed = _load_completed(p)
-        assert (2, "probs", "jaqsi") in completed
-        assert (2, "probs", "pennylane") in completed
+        assert ("hea", 1, 2, 1, "1", "probs", "jaqsi") in completed
+        assert ("hea", 1, 2, 1, "1", "probs", "pennylane") in completed
         assert len(completed) == 2
+
+    def test_sweeps_get_separate_entries(self, tmp_path: Path):
+        """Depth, family, batch and thread sweeps must not collapse onto one key."""
+        p = tmp_path / "results.csv"
+        _ensure_csv(p)
+
+        _append_row(p, _result("jaqsi", "probs", 2, jnp.array([0.0]), n_layers=1))
+        _append_row(p, _result("jaqsi", "probs", 2, jnp.array([0.0]), n_layers=4))
+        _append_row(
+            p, _result("jaqsi", "probs", 2, jnp.array([0.0]), circuit="crx_ring")
+        )
+        _append_row(p, _result("jaqsi", "probs", 2, jnp.array([0.0]), batch_size=64))
+        _append_row(p, _result("jaqsi", "probs", 2, jnp.array([0.0]), threads=16))
+
+        completed = _load_completed(p)
+        assert len(completed) == 5
+        assert ("hea", 4, 2, 1, "1", "probs", "jaqsi") in completed
+        assert ("crx_ring", 1, 2, 1, "1", "probs", "jaqsi") in completed
+        assert ("hea", 1, 2, 64, "1", "probs", "jaqsi") in completed
+        assert ("hea", 1, 2, 1, "16", "probs", "jaqsi") in completed
 
     def test_load_completed_empty_file(self, tmp_path: Path):
         p = tmp_path / "results.csv"
@@ -108,14 +165,14 @@ class TestAppendAndLoadCompleted:
 class TestValidateResults:
     def test_matching_results_pass(self):
         arr = jnp.array([[0.5, 0.3]])
-        r1 = BenchmarkResult("jaqsi", "probs", 2, 1, 10, 1.0, 0.1, arr)
-        r2 = BenchmarkResult("pennylane", "probs", 2, 1, 10, 2.0, 0.2, arr)
+        r1 = _result("jaqsi", "probs", 2, arr)
+        r2 = _result("pennylane", "probs", 2, arr)
         # Should not raise
         _validate_results(r1, r2, precision=1e-8)
 
     def test_mismatched_results_raise(self):
-        r1 = BenchmarkResult("jaqsi", "probs", 2, 1, 10, 1.0, 0.1, jnp.array([1.0]))
-        r2 = BenchmarkResult("pennylane", "probs", 2, 1, 10, 2.0, 0.2, jnp.array([0.0]))
+        r1 = _result("jaqsi", "probs", 2, jnp.array([1.0]))
+        r2 = _result("pennylane", "probs", 2, jnp.array([0.0]))
         with pytest.raises(RuntimeError, match="Results mismatch"):
             _validate_results(r1, r2, precision=1e-8)
 
@@ -123,36 +180,52 @@ class TestValidateResults:
         """expval mode: PL is (n_obs, batch), Jaqsi is (batch, n_obs)."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  batch=1, 3 obs
         pl_arr = jnp.array([[0.1], [0.2], [0.3]])    # (3, 1)  PL convention
-        r1 = BenchmarkResult("jaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
-        r2 = BenchmarkResult("pennylane", "expval", 3, 1, 10, 2.0, 0.2, pl_arr)
+        r1 = _result("jaqsi", "expval", 3, ys_arr)
+        r2 = _result("pennylane", "expval", 3, pl_arr)
+        _validate_results(r1, r2, precision=1e-8)
+
+    def test_expval_transposed_pennylane_adjoint(self):
+        """The lightning adapter broadcasts the same way as default.qubit."""
+        ys_arr = jnp.array([[0.1, 0.2, 0.3]])
+        pl_arr = jnp.array([[0.1], [0.2], [0.3]])
+        r1 = _result("jaqsi", "expval", 3, ys_arr)
+        r2 = _result("pennylane_adjoint", "expval", 3, pl_arr)
+        _validate_results(r1, r2, precision=1e-8)
+
+    def test_expval_not_transposed_pulse_pennylane(self):
+        """The pulse adapter stacks per sample, so it needs no transpose."""
+        ys_arr = jnp.array([[0.1, 0.2, 0.3]])
+        pl_arr = jnp.array([[0.1, 0.2, 0.3]])
+        r1 = _result("jaqsi_pulse", "expval", 3, ys_arr, circuit="crx_ring")
+        r2 = _result("pennylane_pulse", "expval", 3, pl_arr, circuit="crx_ring")
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_qiskit(self):
         """expval mode: Qiskit uses (batch, n_obs) like Jaqsi — no transpose."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)
         qk_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  same layout
-        r1 = BenchmarkResult("jaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
-        r2 = BenchmarkResult("qiskit", "expval", 3, 1, 10, 2.0, 0.2, qk_arr)
+        r1 = _result("jaqsi", "expval", 3, ys_arr)
+        r2 = _result("qiskit", "expval", 3, qk_arr)
         _validate_results(r1, r2, precision=1e-8)
 
     def test_qiskit_matching_results_pass(self):
         arr = jnp.array([[0.5, 0.3]])
-        r1 = BenchmarkResult("jaqsi", "probs", 2, 1, 10, 1.0, 0.1, arr)
-        r2 = BenchmarkResult("qiskit", "probs", 2, 1, 10, 3.0, 0.3, arr)
+        r1 = _result("jaqsi", "probs", 2, arr)
+        r2 = _result("qiskit", "probs", 2, arr)
         _validate_results(r1, r2, precision=1e-8)
 
     def test_qibo_matching_results_pass(self):
         arr = jnp.array([[0.5, 0.3]])
-        r1 = BenchmarkResult("jaqsi", "probs", 2, 1, 10, 1.0, 0.1, arr)
-        r2 = BenchmarkResult("qibo", "probs", 2, 1, 10, 2.5, 0.2, arr)
+        r1 = _result("jaqsi", "probs", 2, arr)
+        r2 = _result("qibo", "probs", 2, arr)
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_qibo(self):
         """expval mode: Qibo uses (batch, n_obs) like Jaqsi — no transpose."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])
         qb_arr = jnp.array([[0.1, 0.2, 0.3]])
-        r1 = BenchmarkResult("jaqsi", "expval", 3, 1, 10, 1.0, 0.1, ys_arr)
-        r2 = BenchmarkResult("qibo", "expval", 3, 1, 10, 2.0, 0.2, qb_arr)
+        r1 = _result("jaqsi", "expval", 3, ys_arr)
+        r2 = _result("qibo", "expval", 3, qb_arr)
         _validate_results(r1, r2, precision=1e-8)
 
 
@@ -233,8 +306,8 @@ class TestInfidelityColumn:
     def test_written_for_pulse_rows(self, tmp_path: Path):
         path = tmp_path / "b.csv"
         _ensure_csv(path)
-        result = BenchmarkResult(
-            "jaqsi_pulse", "state", 2, 1, 10, 1.0, 0.1, jnp.array([1.0])
+        result = _result(
+            "jaqsi_pulse", "state", 2, jnp.array([1.0]), circuit="crx_ring"
         )
         result.infidelity = 1.25e-14
         _append_row(path, result)
@@ -246,10 +319,7 @@ class TestInfidelityColumn:
     def test_blank_for_gate_rows(self, tmp_path: Path):
         path = tmp_path / "b.csv"
         _ensure_csv(path)
-        _append_row(
-            path,
-            BenchmarkResult("jaqsi", "state", 2, 1, 10, 1.0, 0.1, jnp.array([1.0])),
-        )
+        _append_row(path, _result("jaqsi", "state", 2, jnp.array([1.0])))
 
         with open(path, newline="") as f:
             row = list(csv.DictReader(f))[0]

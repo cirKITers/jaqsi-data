@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
+from benchmark.circuits import build_spec
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from benchmark.simulators.jaqsi_pulse_sim import JaqsiPulseBenchmark
 from benchmark.simulators.pulse_model import (
@@ -34,14 +35,26 @@ SOLVER_PRECISION = 1e-5
 PHI = 0.7123
 
 
+def _spec(n_qubits: int, n_layers: int = 1):
+    """Return the pulse-capable circuit spec at the given size."""
+    return build_spec("crx_ring", n_qubits, n_layers)
+
+
+def _inputs(spec) -> np.ndarray:
+    """Return one parameter vector, every CRX angle set to ``PHI``."""
+    return np.full(spec.n_inputs, PHI)
+
+
 def _scipy_state(n_qubits: int, phi: float) -> np.ndarray:
     """Integrate the pulse schedule with scipy, independently of jax."""
     psi = np.zeros(2**n_qubits, dtype=complex)
     psi[0] = 1.0
 
-    for segment in build_schedule(n_qubits):
+    spec = _spec(n_qubits)
+    params = np.full(spec.n_inputs, phi)
+    for segment in build_schedule(spec):
         op = embed(segment.op, segment.wires, n_qubits)
-        coeff = make_coeff_fn(segment, phi)
+        coeff = make_coeff_fn(segment, params)
         solution = solve_ivp(
             lambda t, y: -1j * coeff(t) * (op @ y),
             (0.0, segment.duration),
@@ -60,11 +73,23 @@ class TestSchedule:
     @pytest.mark.parametrize("n_qubits", [2, 3, 4])
     def test_segment_count(self, n_qubits):
         # 3 segments per Hadamard and 18 per CRX, one of each per qubit.
-        assert len(build_schedule(n_qubits)) == 21 * n_qubits
+        assert len(build_schedule(_spec(n_qubits))) == 21 * n_qubits
+
+    @pytest.mark.parametrize("n_layers", [1, 2])
+    @pytest.mark.parametrize("n_qubits", [2, 3])
+    def test_segment_count_scales_with_depth(self, n_qubits, n_layers):
+        """Each extra CRX ring adds another 18 segments per qubit."""
+        schedule = build_schedule(_spec(n_qubits, n_layers))
+        assert len(schedule) == 3 * n_qubits + 18 * n_qubits * n_layers
+
+    def test_unsupported_gate_raises(self):
+        """Only the Hadamard and CRX decompositions are transcribed."""
+        with pytest.raises(ValueError, match="no pulse transcription"):
+            build_schedule(build_spec("hea", 2, 1))
 
     @pytest.mark.parametrize("n_qubits", [2, 3])
     def test_embedding_is_hermitian(self, n_qubits):
-        for segment in build_schedule(n_qubits):
+        for segment in build_schedule(_spec(n_qubits)):
             op = embed(segment.op, segment.wires, n_qubits)
             assert op.shape == (2**n_qubits, 2**n_qubits)
             np.testing.assert_allclose(op, op.conj().T, atol=1e-12)
@@ -79,7 +104,7 @@ class TestSchedule:
         rng = np.random.default_rng(n_qubits)
         psi = rng.normal(size=2**n_qubits) + 1j * rng.normal(size=2**n_qubits)
 
-        for segment in build_schedule(n_qubits):
+        for segment in build_schedule(_spec(n_qubits)):
             local = rng.normal(size=segment.op.shape) + 1j * rng.normal(
                 size=segment.op.shape
             )
@@ -97,8 +122,9 @@ class TestTranscription:
     def test_scipy_matches_jaqsi_pulse(self):
         n_qubits = 2
         sim = JaqsiPulseBenchmark()
-        sim.setup(n_qubits, "state")
-        jaqsi_psi = np.asarray(sim.run(jnp.array([PHI])))[0]
+        spec = _spec(n_qubits)
+        sim.setup(spec, "state")
+        jaqsi_psi = np.asarray(sim.run(jnp.array([_inputs(spec)]), jnp.zeros(0)))[0]
 
         np.testing.assert_allclose(
             jaqsi_psi,
@@ -113,8 +139,11 @@ class TestTranscription:
         sim = JaqsiPulseBenchmark()
 
         for mode in ("probs", "expval", "density"):
-            sim.setup(n_qubits, mode)
-            expected = np.asarray(sim.run(jnp.array([PHI])))[0]
+            spec = _spec(n_qubits)
+            sim.setup(spec, mode)
+            expected = np.asarray(
+                sim.run(jnp.array([_inputs(spec)]), jnp.zeros(0))
+            )[0]
             np.testing.assert_allclose(
                 project_state(psi, mode, n_qubits),
                 expected,
@@ -129,14 +158,16 @@ class TestGateEquivalence:
     @pytest.mark.parametrize("n_qubits", [2, 3])
     def test_expval_approximates_gate_level(self, n_qubits):
         pulse = JaqsiPulseBenchmark()
-        pulse.setup(n_qubits, "expval")
+        spec = _spec(n_qubits)
+        pulse.setup(spec, "expval")
         gate = JaqsiBenchmark()
-        gate.setup(n_qubits, "expval")
+        gate.setup(spec, "expval")
 
-        batch = jnp.array([PHI])
+        inputs = jnp.array([_inputs(spec)])
+        weights = jnp.zeros(0)
         np.testing.assert_allclose(
-            np.asarray(pulse.run(batch)),
-            np.asarray(gate.run(batch)),
+            np.asarray(pulse.run(inputs, weights)),
+            np.asarray(gate.run(inputs, weights)),
             atol=SOLVER_PRECISION,
             err_msg="pulse circuit does not reproduce the gate-level circuit",
         )

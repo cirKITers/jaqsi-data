@@ -19,6 +19,7 @@ import jax.numpy as jnp
 
 import dynamiqs as dq
 
+from benchmark.circuits import PULSE_FAMILIES, CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 from benchmark.simulators.pulse_model import (
     apply_local,
@@ -44,7 +45,15 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
+        # decompositions, and the pulse level measures forward simulation only.
+        return spec.family in PULSE_FAMILIES and mode != "grad"
+
+    def setup(
+        self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
+    ) -> None:
+        n_qubits = spec.n_qubits
         self._n_qubits = n_qubits
         self._mode = mode
 
@@ -55,7 +64,7 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
         # Build every segment operator once, outside the timing loop.  The
         # tensor order matches the big-endian convention of the pulse model, so
         # no basis permutation is needed.
-        segments = build_schedule(n_qubits)
+        segments = build_schedule(spec)
         if optimal_config:
             ops = [dq.asqarray(jnp.asarray(seg.op)) for seg in segments]
         else:
@@ -71,18 +80,18 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
             ]
         psi0 = dq.basis([2] * n_qubits, [0] * n_qubits)
 
-        def hamiltonian(op, seg, phi: jnp.ndarray):
-            """Return the segment Hamiltonian ``c(t) * op`` at *phi*."""
+        def hamiltonian(op, seg, params: jnp.ndarray):
+            """Return the segment Hamiltonian ``c(t) * op`` at *params*."""
             if seg.drag is None:
-                return seg.angle_fn(phi) * op
-            return dq.modulated(make_coeff_fn(seg, phi, xp=jnp), op)
+                return seg.angle_fn(params) * op
+            return dq.modulated(make_coeff_fn(seg, params, xp=jnp), op)
 
-        def solve(phi: jnp.ndarray) -> jnp.ndarray:
+        def solve(params: jnp.ndarray) -> jnp.ndarray:
             """Evolve $\\lvert 0 \\dots 0 \\rangle$ through the pulse schedule."""
             state = psi0
             for op, seg in zip(ops, segments):
                 state = dq.sesolve(
-                    hamiltonian(op, seg, phi),
+                    hamiltonian(op, seg, params),
                     state,
                     jnp.array([0.0, seg.duration]),
                     method=_METHOD,
@@ -90,12 +99,12 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
                 ).states[-1]
             return project_state(state.to_jax().ravel(), mode, n_qubits, jnp)
 
-        def solve_local(phi: jnp.ndarray) -> jnp.ndarray:
+        def solve_local(params: jnp.ndarray) -> jnp.ndarray:
             """Evolve $\\lvert 0 \\dots 0 \\rangle$ one local propagator at a time."""
             state = psi0.to_jax().ravel()
             for op, seg in zip(ops, segments):
                 propagator = dq.sepropagator(
-                    hamiltonian(op, seg, phi),
+                    hamiltonian(op, seg, params),
                     jnp.array([0.0, seg.duration]),
                     method=_METHOD,
                     progress_meter=False,
@@ -112,10 +121,10 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Execution helpers
     # ------------------------------------------------------------------
-    def warmup(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def warmup(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs)
 
-    def run(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def run(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs)

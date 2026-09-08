@@ -19,6 +19,7 @@ import jax.numpy as jnp
 
 import qutip
 
+from benchmark.circuits import PULSE_FAMILIES, CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 from benchmark.simulators.pulse_model import (
     Segment,
@@ -47,7 +48,15 @@ class QutipPulseBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
+        # decompositions, and the pulse level measures forward simulation only.
+        return spec.family in PULSE_FAMILIES and mode != "grad"
+
+    def setup(
+        self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
+    ) -> None:
+        n_qubits = spec.n_qubits
         self._n_qubits = n_qubits
         self._mode = mode
         self._optimal = optimal_config
@@ -55,7 +64,7 @@ class QutipPulseBenchmark(SimulatorBenchmark):
         # Build every segment operator once, outside the timing loop.  QuTiP's
         # tensor order matches the big-endian convention of the pulse model, so
         # no basis permutation is needed.
-        segments = build_schedule(n_qubits)
+        segments = build_schedule(spec)
         if optimal_config:
             local_dims = [[2] * len(seg.wires) for seg in segments]
             self._segments = [
@@ -75,44 +84,44 @@ class QutipPulseBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Execution helpers
     # ------------------------------------------------------------------
-    def _hamiltonian(self, op: qutip.Qobj, seg: Segment, phi: float):
-        """Return the segment Hamiltonian ``c(t) * op`` at *phi*."""
+    def _hamiltonian(self, op: qutip.Qobj, seg: Segment, params: np.ndarray):
+        """Return the segment Hamiltonian ``c(t) * op`` at *params*."""
         if seg.drag is None:
-            return float(seg.angle_fn(phi)) * op
-        return qutip.QobjEvo([[op, make_coeff_fn(seg, phi)]])
+            return float(seg.angle_fn(params)) * op
+        return qutip.QobjEvo([[op, make_coeff_fn(seg, params)]])
 
-    def _solve(self, phi: float) -> np.ndarray:
+    def _solve(self, params: np.ndarray) -> np.ndarray:
         """Evolve $\\lvert 0 \\dots 0 \\rangle$ through the full pulse schedule."""
         psi = self._psi0
         for op, seg in self._segments:
             psi = qutip.sesolve(
-                self._hamiltonian(op, seg, phi),
+                self._hamiltonian(op, seg, params),
                 psi,
                 [0.0, seg.duration],
                 options=_OPTIONS,
             ).states[-1]
         return psi.full().ravel()
 
-    def _solve_local(self, phi: float) -> np.ndarray:
+    def _solve_local(self, params: np.ndarray) -> np.ndarray:
         """Evolve $\\lvert 0 \\dots 0 \\rangle$ one local propagator at a time."""
         psi = self._psi0.full().ravel()
         for op, seg in self._segments:
             propagator = qutip.propagator(
-                self._hamiltonian(op, seg, phi), seg.duration, options=_OPTIONS
+                self._hamiltonian(op, seg, params), seg.duration, options=_OPTIONS
             )
             psi = apply_local(propagator.full(), psi, seg.wires, self._n_qubits)
         return psi
 
-    def _execute(self, phi_batch: jnp.ndarray) -> jnp.ndarray:
+    def _execute(self, inputs: jnp.ndarray) -> jnp.ndarray:
         solve = self._solve_local if self._optimal else self._solve
         results = [
-            project_state(solve(float(phi_val)), self._mode, self._n_qubits)
-            for phi_val in np.asarray(phi_batch)
+            project_state(solve(sample), self._mode, self._n_qubits)
+            for sample in np.asarray(inputs)
         ]
         return jnp.array(np.stack(results))
 
-    def warmup(self, phi: jnp.ndarray) -> jnp.ndarray:
-        return self._execute(phi)
+    def warmup(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+        return self._execute(inputs)
 
-    def run(self, phi: jnp.ndarray) -> jnp.ndarray:
-        return self._execute(phi)
+    def run(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+        return self._execute(inputs)
