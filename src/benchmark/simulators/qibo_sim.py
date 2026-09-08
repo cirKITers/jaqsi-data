@@ -1,7 +1,9 @@
 """Qibo simulator benchmark adapter.
 
-Uses Qibo's built-in numpy backend for local statevector / density-matrix
-simulation (no external provider or API key required).
+Local statevector / density-matrix simulation, no external provider or API key
+required.  ``optimal_config`` selects the numpy backend and the default path
+selects qibojit; see :meth:`QiboBenchmark.setup` for why that is the reverse of
+what Qibo's packaging suggests.
 """
 
 from __future__ import annotations
@@ -68,21 +70,33 @@ class QiboBenchmark(SimulatorBenchmark):
     def setup(
         self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
     ) -> None:
-        # Backend selection is global to the process but only affects Qibo.
-        # Reset to numpy on the default path so a prior optimal run does not leak.
+        # Backend selection is global to the process but only affects Qibo, so
+        # it is set on every call and neither path can leak into the other.
+        #
+        # Note the assignment is the reverse of what Qibo's own packaging
+        # suggests: ``optimal_config`` selects numpy, not qibojit.  qibojit
+        # parallelises its kernels with numba, which only pays off once the
+        # register is large enough to amortise the launches, and this benchmark
+        # never gets there.  Measured on the hardware-efficient ansatz at ten
+        # qubits, four layers and batch 10, numpy beats qibojit by 1.3x at one
+        # thread and by 10x at sixteen, the gap widening with every thread
+        # added.  Selecting qibojit here would report Qibo at its worst
+        # configuration.  It stays reachable on the other path so that a sweep
+        # wide enough to favour it can still measure it.
         if optimal_config:
-            set_backend("qibojit", platform="numba")
-        else:
+            # Single-threaded by construction, and it rejects ``set_threads``
+            # for any count above one, so it is left alone.
             set_backend("numpy")
-
-        # qibojit's constructor pins numba to one thread per available core,
-        # ignoring the environment, so it is the one backend that has to be
-        # pinned after the fact.  Setting it before construction is not an
-        # option: NUMBA_NUM_THREADS is a cap, and a cap below the core count
-        # makes that same constructor raise.
-        threads = num_threads()
-        if threads is not None:
-            set_threads(threads)
+        else:
+            set_backend("qibojit", platform="numba")
+            # qibojit's constructor pins numba to one thread per available
+            # core, ignoring the environment, so it is the one backend that has
+            # to be pinned after the fact.  Setting it before construction is
+            # not an option: NUMBA_NUM_THREADS is a cap, and a cap below the
+            # core count makes that same constructor raise.
+            threads = num_threads()
+            if threads is not None:
+                set_threads(threads)
 
         self._spec = spec
         self._n_qubits = spec.n_qubits
