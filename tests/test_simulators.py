@@ -332,3 +332,38 @@ class TestOptimalConfigEquivalence:
         optimal_out = np.asarray(optimal_sim.run(inputs, weights))
 
         np.testing.assert_allclose(default_out, optimal_out, atol=1e-8)
+
+
+# ---------------------------------------------------------------------------
+# Threading
+# ---------------------------------------------------------------------------
+
+class TestQiboThreading:
+    """Qibo is the one backend that has to be pinned after construction.
+
+    ``optimal_config`` selects numpy and the default path selects qibojit, the
+    reverse of the other adapters, so the flags below are deliberate.
+    """
+
+    def test_numpy_backend_accepts_a_multi_thread_pinning(self, monkeypatch):
+        """The numpy backend rejects set_threads above one, so it is skipped.
+
+        Without that guard, every multi-threaded run of the optimal
+        configuration fails during setup rather than producing a measurement.
+        """
+        monkeypatch.setenv("OMP_NUM_THREADS", "4")
+        sim = QiboBenchmark()
+        spec = build_spec("hea", 2, 1)
+        sim.setup(spec, "expval", optimal_config=True)
+        result = _run(sim, spec)
+        assert result.shape == (1, spec.n_qubits)
+
+    @pytest.mark.parametrize("threads", [1, 2])
+    def test_qibojit_backend_is_pinned(self, monkeypatch, threads):
+        """qibojit ignores the environment, so the adapter pins it directly."""
+        import qibo
+
+        monkeypatch.setenv("OMP_NUM_THREADS", str(threads))
+        sim = QiboBenchmark()
+        sim.setup(build_spec("hea", 2, 1), "expval", optimal_config=False)
+        assert qibo.get_threads() == threads
