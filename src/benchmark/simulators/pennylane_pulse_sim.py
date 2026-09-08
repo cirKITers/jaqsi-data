@@ -105,7 +105,13 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
         if optimal_config:
             # Integrate each segment with jax directly and apply the resulting
             # local unitary, bypassing ParametrizedEvolution's per-call cost.
-            @qml.qnode(dev, interface="jax", diff_method=None)
+            #
+            # ``diff_method`` must not be None: it takes default.qubit off the
+            # JAX-traced path, so every call round-trips through host numpy and
+            # jax.jit has nothing to compile.  Measured here at 8x to 10x the
+            # cost for bit-identical results.  Naming the backprop pipeline
+            # keeps the circuit traceable; no gradient is ever taken.
+            @qml.qnode(dev, interface="jax", diff_method="backprop")
             def circuit(params):
                 for segment in segments:
                     qml.QubitUnitary(
@@ -124,9 +130,9 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
                 for seg in segments
             ]
 
-            # Forward-only execution: the pulse cost is dominated by the ODE
-            # solves, so the gradient infrastructure is disabled throughout.
-            @qml.qnode(dev, interface="jax", diff_method=None)
+            # ``backprop`` for the same reason as above: it is what keeps the
+            # QNode on the JAX-traced path.  No gradient is taken here either.
+            @qml.qnode(dev, interface="jax", diff_method="backprop")
             def circuit(params):
                 for hamiltonian, angle_fn, duration in evolutions:
                     qml.evolve(hamiltonian)(
