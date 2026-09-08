@@ -46,7 +46,7 @@ execution:
 modes:
   - expval
   # - state
-  # - density
+  - density
   - grad
   # - probs
 
