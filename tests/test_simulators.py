@@ -341,20 +341,20 @@ class TestOptimalConfigEquivalence:
 class TestQiboThreading:
     """Qibo is the one backend that has to be pinned after construction.
 
-    ``optimal_config`` selects numpy and the default path selects qibojit, the
-    reverse of the other adapters, so the flags below are deliberate.
+    ``optimal_config`` selects qibojit for density and numpy elsewhere, so the
+    mode below is what decides which backend is under test.
     """
 
     def test_numpy_backend_accepts_a_multi_thread_pinning(self, monkeypatch):
         """The numpy backend rejects set_threads above one, so it is skipped.
 
-        Without that guard, every multi-threaded run of the optimal
+        Without that guard, every multi-threaded run of the default
         configuration fails during setup rather than producing a measurement.
         """
         monkeypatch.setenv("OMP_NUM_THREADS", "4")
         sim = QiboBenchmark()
         spec = build_spec("hea", 2, 1)
-        sim.setup(spec, "expval", optimal_config=True)
+        sim.setup(spec, "expval", optimal_config=False)
         result = _run(sim, spec)
         assert result.shape == (1, spec.n_qubits)
 
@@ -365,5 +365,14 @@ class TestQiboThreading:
 
         monkeypatch.setenv("OMP_NUM_THREADS", str(threads))
         sim = QiboBenchmark()
-        sim.setup(build_spec("hea", 2, 1), "expval", optimal_config=False)
+        sim.setup(build_spec("hea", 2, 1), "density", optimal_config=True)
         assert qibo.get_threads() == threads
+
+    def test_state_vector_modes_use_numpy(self, monkeypatch):
+        """numpy has no set_threads, so a pinned run proves which backend ran."""
+        import qibo
+
+        monkeypatch.setenv("OMP_NUM_THREADS", "4")
+        sim = QiboBenchmark()
+        sim.setup(build_spec("hea", 2, 1), "expval", optimal_config=True)
+        assert qibo.get_backend().name == "numpy"
