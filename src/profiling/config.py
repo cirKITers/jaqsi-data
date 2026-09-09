@@ -12,6 +12,10 @@ class ProfilingConfig:
 
     Attributes
     ----------
+    circuit_family:
+        Circuit family from :mod:`benchmark.circuits` to profile.
+    n_layers:
+        Depth of that circuit.
     qubit_counts:
         List of qubit counts to profile.
     modes:
@@ -32,6 +36,8 @@ class ProfilingConfig:
         Random seed for reproducible parameter generation.
     """
 
+    circuit_family: str = "hea"
+    n_layers: int = 1
     qubit_counts: List[int] = field(default_factory=lambda: [2, 4, 8, 12, 16])
     modes: List[Mode] = field(
         default_factory=lambda: ["probs", "expval", "state", "density"]

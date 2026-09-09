@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from jaqsi import Gates, PulseInformation, Script
+from jaqsi import PulseInformation
 
+from benchmark.circuits import PULSE_FAMILIES, CircuitSpec
 from benchmark.simulators.base import Mode
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 
@@ -19,18 +20,19 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
 
     name = "jaqsi_pulse"
 
-    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
-        self._n_qubits = n_qubits
-        self._mode = mode
+    pulse = True
 
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
+        # decompositions, so the other families have no pulse-level reference
+        # the remaining pulse adapters could be compared against.  The pulse
+        # level measures forward simulation only.
+        return spec.family in PULSE_FAMILIES and mode != "grad"
+
+    def setup(
+        self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
+    ) -> None:
         # PulseInformation keeps the envelope, RWA flag and frame in class-level
         # state; restore the shipped defaults the pulse model transcribes.
         PulseInformation.reset_defaults()
-
-        def circuit(phi: float) -> None:
-            for i in range(n_qubits):
-                Gates.H(wires=i, pulse=True)
-            for i in range(n_qubits):
-                Gates.CRX(w=phi, wires=[i, (i + 1) % n_qubits], pulse=True)
-
-        self._script = Script(f=circuit)
+        super().setup(spec, mode, optimal_config=optimal_config)

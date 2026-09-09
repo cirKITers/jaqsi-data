@@ -6,12 +6,14 @@ import csv
 import importlib
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 import jax
 import jax.numpy as jnp
 
+from benchmark.circuits import CircuitSpec, build_spec
 from benchmark.config import BenchmarkConfig
 from benchmark.simulators.base import BenchmarkResult, Mode, SimulatorBenchmark
 
@@ -19,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 # CSV column order
 CSV_COLUMNS = [
+    "circuit",
+    "n_layers",
     "n_qubits",
     "mode",
     "simulator",
@@ -26,8 +30,14 @@ CSV_COLUMNS = [
     "std_ms",
     "batch_size",
     "n_iters",
+    "threads",
     "infidelity",
 ]
+
+# Cross-validation tolerance for the gradient mode.  Reverse-mode AD, the
+# adjoint method and Qulacs' backprop accumulate their sums in different
+# orders, so gradients agree to a looser bound than the forward results.
+GRAD_PRECISION = 1.0e-6
 
 # Maps a simulator name to the module and class implementing its adapter.
 # Only the requested adapters are imported, so a missing optional backend does
@@ -35,6 +45,8 @@ CSV_COLUMNS = [
 SIMULATOR_REGISTRY: Dict[str, Tuple[str, str]] = {
     "jaqsi": ("jaqsi_sim", "JaqsiBenchmark"),
     "pennylane": ("pennylane_sim", "PennylaneBenchmark"),
+    "pennylane_adjoint": ("pennylane_sim", "PennylaneAdjointBenchmark"),
+    "pennylane_psr": ("pennylane_sim", "PennylanePsrBenchmark"),
     "qiskit": ("qiskit_sim", "QiskitBenchmark"),
     "qibo": ("qibo_sim", "QiboBenchmark"),
     "qulacs": ("qulacs_sim", "QulacsBenchmark"),
@@ -62,6 +74,11 @@ GATE_COUNTERPART: Dict[str, str] = {
 
 # Modes whose output defines a state or a distribution, and hence a fidelity.
 FIDELITY_MODES = frozenset({"state", "density", "probs"})
+
+# Gate-level PennyLane adapters batch through PennyLane's own parameter
+# broadcasting, which returns expval as ``(n_obs, batch)`` where every other
+# adapter returns ``(batch, n_obs)``.
+PENNYLANE_BROADCAST = frozenset({"pennylane", "pennylane_adjoint"})
 
 
 def _level(simulator: str) -> str:
@@ -107,21 +124,60 @@ def _infidelity(pulse_output, gate_output, mode: str) -> Optional[float]:
 
 def _gate_output(
     name: str,
-    n_qubits: int,
+    spec: CircuitSpec,
     mode: Mode,
-    phi: jnp.ndarray,
+    inputs: jnp.ndarray,
+    weights: jnp.ndarray,
     optimal_config: bool,
 ) -> jnp.ndarray:
     """Execute the gate-level simulator *name* once, outside the timing loop."""
     module_name, class_name = SIMULATOR_REGISTRY[name]
     module = importlib.import_module(f"benchmark.simulators.{module_name}")
     sim = getattr(module, class_name)()
-    sim.setup(n_qubits, mode, optimal_config=optimal_config)
-    return sim.run(phi)
+    sim.setup(spec, mode, optimal_config=optimal_config)
+    return sim.run(inputs, weights)
+
+
+def _git_commit() -> str:
+    """Return the short commit this benchmark ran from, ``unknown`` if unclear.
+
+    A ``-dirty`` suffix marks modified *tracked* files; untracked ones are
+    ignored, since a results file being written into the tree is the normal
+    case and does not change the code that produced it.
+    """
+    root = Path(__file__).resolve().parent.parent.parent
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if not commit:
+        return "unknown"
+    return f"{commit}-dirty" if dirty else commit
 
 
 def _csv_path(cfg: BenchmarkConfig) -> Path:
-    return Path(cfg.output.dir) / f"benchmarks-{cfg.output.identifier}.csv"
+    """Return the results path, tagged with the commit the run came from.
+
+    The commit is part of the file name rather than a column so that a results
+    file identifies its own provenance once it is copied off the machine, and
+    so that a run started after a code change lands in its own file instead of
+    resuming into results from different code.
+    """
+    name = f"benchmarks-{cfg.output.identifier}-{_git_commit()}.csv"
+    return Path(cfg.output.dir) / name
 
 
 def _ensure_csv(path: Path) -> None:
@@ -134,16 +190,32 @@ def _ensure_csv(path: Path) -> None:
         logger.info(f"Created new results file: {path}")
 
 
-def _load_completed(path: Path) -> Set[Tuple[int, str, str]]:
-    """Return the set of ``(n_qubits, mode, simulator)`` tuples already
-    present in *path* so we can skip them on a resumed run."""
-    completed: Set[Tuple[int, str, str]] = set()
+def _load_completed(path: Path) -> Set[Tuple[str, int, int, int, str, str, str]]:
+    """Return the set of ``(circuit, n_layers, n_qubits, batch_size, threads,
+    mode, simulator)`` tuples already present in *path* so we can skip them on
+    a resumed run.
+
+    ``batch_size`` and ``threads`` are part of the key so that a batch or
+    thread sweep can be appended to one results file by re-running with the
+    same ``output.identifier`` and a different setting.
+    """
+    completed: Set[Tuple[str, int, int, int, str, str, str]] = set()
     if not path.exists():
         return completed
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            completed.add((int(row["n_qubits"]), row["mode"], row["simulator"]))
+            completed.add(
+                (
+                    row["circuit"],
+                    int(row["n_layers"]),
+                    int(row["n_qubits"]),
+                    int(row["batch_size"]),
+                    row.get("threads", ""),
+                    row["mode"],
+                    row["simulator"],
+                )
+            )
     return completed
 
 
@@ -153,6 +225,8 @@ def _append_row(path: Path, result: BenchmarkResult) -> None:
         writer = csv.writer(f)
         writer.writerow(
             [
+                result.circuit,
+                result.n_layers,
                 result.n_qubits,
                 result.mode,
                 result.simulator,
@@ -160,6 +234,7 @@ def _append_row(path: Path, result: BenchmarkResult) -> None:
                 f"{result.std_ms:.6f}",
                 result.batch_size,
                 result.n_iters,
+                "" if result.threads is None else result.threads,
                 "" if result.infidelity is None else f"{result.infidelity:.6e}",
             ]
         )
@@ -180,7 +255,7 @@ def _validate_results(
     oth_arr = jnp.asarray(other.raw_output)
 
     # PennyLane returns expval transposed relative to everyone else
-    if ref.mode == "expval" and other.simulator == "pennylane":
+    if ref.mode == "expval" and other.simulator in PENNYLANE_BROADCAST:
         oth_arr = oth_arr.T
 
     # rtol is disabled so that *precision* is the whole tolerance rather than
@@ -199,8 +274,9 @@ def _validate_results(
 def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     """Execute the full benchmark suite described by *cfg*.
 
-    Already-completed ``(n_qubits, mode, simulator)`` combinations found in
-    the output CSV are skipped, enabling seamless recovery after a crash.
+    Already-completed ``(circuit, n_layers, n_qubits, batch_size, threads,
+    mode, simulator)`` combinations found in the output CSV are skipped,
+    enabling seamless recovery after a crash.
 
     Returns the path to the CSV results file.
     """
@@ -225,89 +301,149 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
         module = importlib.import_module(f"benchmark.simulators.{module_name}")
         simulators.append(getattr(module, class_name)())
 
-    for n_qubits in qubit_sizes:
-        for mode in cfg.modes:
-            mode: Mode  # type: ignore[no-redef]
+    for n_layers in cfg.circuit.layers:
+        for n_qubits in qubit_sizes:
+            spec = build_spec(cfg.circuit.family, n_qubits, n_layers)
 
-            # Check if *all* simulators are already done for this combo
-            all_done = all(
-                (n_qubits, mode, sim.name) in completed for sim in simulators
-            )
-            if all_done:
-                logger.info(
-                    f"[skip] n_qubits={n_qubits}, mode={mode} — already complete"
+            for mode in cfg.modes:
+                mode: Mode  # type: ignore[no-redef]
+
+                active: List[SimulatorBenchmark] = []
+                for sim in simulators:
+                    if sim.supports(spec, mode):
+                        active.append(sim)
+                    else:
+                        logger.info(
+                            f"[skip] {sim.name} does not support "
+                            f"circuit={spec.family}, mode={mode}"
+                        )
+
+                # Check if *all* supported simulators are already done
+                batch_size = cfg.execution.batch_size
+                threads = str(cfg.threads)
+                all_done = all(
+                    (
+                        spec.family,
+                        n_layers,
+                        n_qubits,
+                        batch_size,
+                        threads,
+                        mode,
+                        sim.name,
+                    )
+                    in completed
+                    for sim in active
                 )
-                continue
-
-            # Generate random parameters (shared across simulators for fairness)
-            rng, subkey = jax.random.split(rng)
-            all_phis = jax.random.uniform(
-                subkey,
-                shape=(cfg.execution.n_iters + 1, cfg.execution.batch_size),
-                minval=-jnp.pi,
-                maxval=jnp.pi,
-            )
-
-            sim_results: Dict[str, BenchmarkResult] = {}
-
-            # The recorded output is the one from the last timed iteration, so
-            # the gate-level comparison has to use the same parameters.
-            last_phi = all_phis[cfg.execution.n_iters - 1]
-            gate_outputs: Dict[str, jnp.ndarray] = {}
-
-            for sim in simulators:
-                key = (n_qubits, mode, sim.name)
-                if key in completed:
-                    logger.info(f"[skip] {sim.name} n_qubits={n_qubits}, mode={mode}")
+                if all_done:
+                    logger.info(
+                        f"[skip] circuit={spec.family}, layers={n_layers}, "
+                        f"n_qubits={n_qubits}, mode={mode} — already complete"
+                    )
                     continue
 
-                logger.info(
-                    f"[run]  {sim.name} n_qubits={n_qubits}, mode={mode} "
-                    f"(iters={cfg.execution.n_iters}, batch={cfg.execution.batch_size})"
+                # Generate random parameters, shared across simulators for
+                # fairness.  Inputs carry the batch axis; weights are shared
+                # across the batch and redrawn every iteration.
+                rng, input_key, weight_key = jax.random.split(rng, 3)
+                all_inputs = jax.random.uniform(
+                    input_key,
+                    shape=(
+                        cfg.execution.n_iters + 1,
+                        cfg.execution.batch_size,
+                        spec.n_inputs,
+                    ),
+                    minval=-jnp.pi,
+                    maxval=jnp.pi,
                 )
-                result = sim.benchmark(
-                    n_qubits=n_qubits,
-                    mode=mode,
-                    all_phis=all_phis,
-                    do_warmup=cfg.warmup,
-                    optimal_config=cfg.optimal_config,
-                )
-                logger.info(
-                    f"  {result.mean_ms:.2f} ± {result.std_ms:.2f} ms"
+                all_weights = jax.random.uniform(
+                    weight_key,
+                    shape=(cfg.execution.n_iters + 1, spec.n_weights),
+                    minval=-jnp.pi,
+                    maxval=jnp.pi,
                 )
 
-                # Report how far the pulse simulation drifts from the gate-level
-                # circuit it implements, which the calibrated pulse parameters
-                # and the ODE solver accuracy both feed into.
-                if _level(sim.name) == "pulse" and mode in FIDELITY_MODES:
-                    gate_name = GATE_COUNTERPART[sim.name]
-                    if gate_name not in gate_outputs:
-                        gate_outputs[gate_name] = _gate_output(
-                            gate_name, n_qubits, mode, last_phi, cfg.optimal_config
+                sim_results: Dict[str, BenchmarkResult] = {}
+
+                # The recorded output is the one from the last timed iteration,
+                # so the gate-level comparison has to use the same parameters.
+                last_inputs = all_inputs[cfg.execution.n_iters - 1]
+                last_weights = all_weights[cfg.execution.n_iters - 1]
+                gate_outputs: Dict[str, jnp.ndarray] = {}
+
+                for sim in active:
+                    key = (
+                        spec.family,
+                        n_layers,
+                        n_qubits,
+                        batch_size,
+                        threads,
+                        mode,
+                        sim.name,
+                    )
+                    if key in completed:
+                        logger.info(
+                            f"[skip] {sim.name} layers={n_layers}, "
+                            f"n_qubits={n_qubits}, mode={mode}"
                         )
-                    result.infidelity = _infidelity(
-                        result.raw_output, gate_outputs[gate_name], mode
+                        continue
+
+                    logger.info(
+                        f"[run]  {sim.name} circuit={spec.family}, "
+                        f"layers={n_layers}, n_qubits={n_qubits}, mode={mode} "
+                        f"(iters={cfg.execution.n_iters}, "
+                        f"batch={cfg.execution.batch_size})"
+                    )
+                    result = sim.benchmark(
+                        spec=spec,
+                        mode=mode,
+                        all_inputs=all_inputs,
+                        all_weights=all_weights,
+                        do_warmup=cfg.warmup,
+                        optimal_config=cfg.optimal_config,
                     )
                     logger.info(
-                        f"  infidelity vs {gate_name}: {result.infidelity:.3e}"
+                        f"  {result.mean_ms:.2f} ± {result.std_ms:.2f} ms"
                     )
 
-                _append_row(csv_file, result)
-                completed.add(key)
-                sim_results[sim.name] = result
+                    # Report how far the pulse simulation drifts from the
+                    # gate-level circuit it implements, which the calibrated
+                    # pulse parameters and the ODE solver accuracy both feed
+                    # into.
+                    if _level(sim.name) == "pulse" and mode in FIDELITY_MODES:
+                        gate_name = GATE_COUNTERPART[sim.name]
+                        if gate_name not in gate_outputs:
+                            gate_outputs[gate_name] = _gate_output(
+                                gate_name,
+                                spec,
+                                mode,
+                                last_inputs,
+                                last_weights,
+                                cfg.optimal_config,
+                            )
+                        result.infidelity = _infidelity(
+                            result.raw_output, gate_outputs[gate_name], mode
+                        )
+                        logger.info(
+                            f"  infidelity vs {gate_name}: {result.infidelity:.3e}"
+                        )
 
-            # Cross-validate each simulation level against its jaqsi reference
-            for level, ref_name in REFERENCE_BY_LEVEL.items():
-                if ref_name not in sim_results:
-                    continue
-                for other_name, other_res in sim_results.items():
-                    if other_name == ref_name or _level(other_name) != level:
+                    _append_row(csv_file, result)
+                    completed.add(key)
+                    sim_results[sim.name] = result
+
+                # Cross-validate each simulation level against its jaqsi reference
+                precision = GRAD_PRECISION if mode == "grad" else cfg.precision
+                for level, ref_name in REFERENCE_BY_LEVEL.items():
+                    if ref_name not in sim_results:
                         continue
-                    _validate_results(
-                        sim_results[ref_name],
-                        other_res,
-                        cfg.precision,
-                    )
+                    for other_name, other_res in sim_results.items():
+                        if other_name == ref_name or _level(other_name) != level:
+                            continue
+                        _validate_results(
+                            sim_results[ref_name],
+                            other_res,
+                            precision,
+                        )
 
     logger.info(f"All benchmarks complete. Results in {csv_file}")
     return csv_file

@@ -19,6 +19,7 @@ import jax
 import jax.numpy as jnp
 import psutil
 
+from benchmark.circuits import build_spec
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from profiling.config import ProfilingConfig, Mode
 from profiling.visualize import (
@@ -112,15 +113,25 @@ class JaqsiProfiler:
         )
 
         # Create a fresh simulator instance and set up the circuit
+        spec = build_spec(
+            self.config.circuit_family, n_qubits, self.config.n_layers
+        )
         simulator = JaqsiBenchmark()
-        simulator.setup(n_qubits, mode)
+        simulator.setup(spec, mode)
 
         # Generate random parameters (same approach as the benchmark runner)
         rng = jax.random.PRNGKey(self.config.seed)
+        input_key, weight_key = jax.random.split(rng)
         total_runs = self.config.warmup_runs + self.config.profile_runs
-        all_phis = jax.random.uniform(
-            rng,
-            shape=(total_runs, self.config.batch_size),
+        all_inputs = jax.random.uniform(
+            input_key,
+            shape=(total_runs, self.config.batch_size, spec.n_inputs),
+            minval=-jnp.pi,
+            maxval=jnp.pi,
+        )
+        all_weights = jax.random.uniform(
+            weight_key,
+            shape=(total_runs, spec.n_weights),
             minval=-jnp.pi,
             maxval=jnp.pi,
         )
@@ -128,7 +139,7 @@ class JaqsiProfiler:
         # -- Warm-up: let JAX trace & JIT-compile ----------------------------
         for i in range(self.config.warmup_runs):
             logger.debug("  warm-up run %d/%d", i + 1, self.config.warmup_runs)
-            simulator.warmup(all_phis[i])
+            simulator.warmup(all_inputs[i], all_weights[i])
 
         # Block until all previous JAX computations have completed so that
         # the profiled region only contains the runs of interest.
@@ -153,7 +164,7 @@ class JaqsiProfiler:
                 logger.debug(
                     "  profiled run %d/%d", i + 1, self.config.profile_runs
                 )
-                simulator.run(all_phis[run_idx])
+                simulator.run(all_inputs[run_idx], all_weights[run_idx])
 
                 # Sample memory after each run to capture the peak
                 jax.block_until_ready(jnp.zeros(1))
@@ -175,6 +186,8 @@ class JaqsiProfiler:
         result = {
             "mode": mode,
             "n_qubits": n_qubits,
+            "circuit": spec.family,
+            "n_layers": spec.n_layers,
             "batch_size": self.config.batch_size,
             "warmup_runs": self.config.warmup_runs,
             "profile_runs": self.config.profile_runs,

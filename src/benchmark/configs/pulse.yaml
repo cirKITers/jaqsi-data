@@ -16,6 +16,21 @@ precision: 1.0e-5
 # 190 ms per segment and otherwise dominates the whole run.
 optimal_config: true
 
+# Threads every simulator is pinned to, before any numerical library is
+# imported.  One is the single-thread regime the Yao, Qulacs and JuliVQC
+# benchmarks report; set it to the core count for the multi-threaded regime and
+# report the two separately.  Without this, qibojit silently takes one thread
+# per available core while nothing else is pinned.
+threads: 1
+
+# The pulse model only transcribes the Hadamard and CRX decompositions, so the
+# pulse benchmark runs the crx_ring family.  Each additional layer adds another
+# 21 n sequential ODE solves, which is why the depth sweep stays at one layer.
+circuit:
+  family: crx_ring
+  layers:
+    - 1
+
 # Qubit sweep range (inclusive).  The schedule has 21 segments per qubit, each
 # solved sequentially, so the runtime grows faster than in the gate benchmark.
 qubits:
@@ -27,10 +42,11 @@ execution:
   n_iters: 20
   batch_size: 2
 
-# Which measurement modes to benchmark
+# Which measurement modes to benchmark.  The pulse level measures forward
+# simulation only; `grad` is a gate-level mode.
 modes:
   - expval
-  - state
+  # - state
   - density
   # - probs
 

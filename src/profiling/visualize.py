@@ -196,6 +196,8 @@ def load_profiling_csv(csv_path: str | Path) -> Dict[str, ProfilingTimings]:
 # ------------------------------------------------------------------
 
 PROFILING_CSV_COLUMNS = [
+    "circuit",
+    "n_layers",
     "mode",
     "n_qubits",
     "batch_size",
@@ -236,6 +238,8 @@ def save_profiling_csv(
         writer.writeheader()
         for r in results:
             writer.writerow({
+                "circuit": r.get("circuit", ""),
+                "n_layers": r.get("n_layers", ""),
                 "mode": r["mode"],
                 "n_qubits": r["n_qubits"],
                 "batch_size": r["batch_size"],

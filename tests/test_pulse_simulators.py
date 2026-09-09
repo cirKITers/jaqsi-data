@@ -16,6 +16,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from benchmark.circuits import build_spec
 from benchmark.runner import REFERENCE_BY_LEVEL, SIMULATOR_REGISTRY, _level
 from benchmark.simulators.dynamiqs_pulse_sim import DynamiqsPulseBenchmark
 from benchmark.simulators.jaqsi_pulse_sim import JaqsiPulseBenchmark
@@ -33,6 +34,23 @@ PRECISION = 1e-6
 N_QUBITS = 2
 MODES = ["probs", "expval", "state", "density"]
 
+# The pulse model only transcribes the Hadamard and CRX decompositions.
+SPEC = build_spec("crx_ring", N_QUBITS, 1)
+
+
+def _inputs(batch_size: int = 1) -> jnp.ndarray:
+    """Return a reproducible batch of CRX angle vectors."""
+    return jax.random.uniform(
+        jax.random.PRNGKey(3),
+        (batch_size, SPEC.n_inputs),
+        minval=-jnp.pi,
+        maxval=jnp.pi,
+    )
+
+
+# crx_ring carries all its parameters in ``inputs``.
+WEIGHTS = jnp.zeros(0)
+
 # Pulse simulators under test (excluding jaqsi_pulse, which is the reference).
 _OTHER_SIMULATORS = [
     pytest.param(QutipPulseBenchmark, id="qutip_pulse"),
@@ -47,8 +65,8 @@ def reference():
     sim = JaqsiPulseBenchmark()
     results = {}
     for mode in MODES:
-        sim.setup(N_QUBITS, mode)
-        results[mode] = np.asarray(sim.run(jnp.array([0.5])))
+        sim.setup(SPEC, mode)
+        results[mode] = np.asarray(sim.run(_inputs(), WEIGHTS))
     return results
 
 
@@ -64,8 +82,8 @@ class TestPulseCrossValidation:
     @pytest.mark.parametrize("mode", MODES)
     def test_matches_reference(self, reference, sim_cls, mode, optimal):
         sim = sim_cls()
-        sim.setup(N_QUBITS, mode, optimal_config=optimal)
-        result = np.asarray(sim.run(jnp.array([0.5])))
+        sim.setup(SPEC, mode, optimal_config=optimal)
+        result = np.asarray(sim.run(_inputs(), WEIGHTS))
 
         assert result.shape == reference[mode].shape
         np.testing.assert_allclose(
@@ -75,15 +93,15 @@ class TestPulseCrossValidation:
 
     @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
     def test_batch_matches_reference(self, sim_cls):
-        batch = jnp.array([0.5, -1.2])
+        batch = _inputs(batch_size=2)
         ref = JaqsiPulseBenchmark()
-        ref.setup(N_QUBITS, "state")
+        ref.setup(SPEC, "state")
         sim = sim_cls()
-        sim.setup(N_QUBITS, "state")
+        sim.setup(SPEC, "state")
 
         np.testing.assert_allclose(
-            np.asarray(sim.run(batch)),
-            np.asarray(ref.run(batch)),
+            np.asarray(sim.run(batch, WEIGHTS)),
+            np.asarray(ref.run(batch, WEIGHTS)),
             atol=PRECISION,
             err_msg=f"state batch mismatch: {sim.name} vs jaqsi_pulse",
         )
@@ -107,15 +125,15 @@ class TestPulseOptimalConfigEquivalence:
     @pytest.mark.parametrize("sim_cls, tolerance", _OPTIMAL_CONFIG_SIMULATORS)
     @pytest.mark.parametrize("mode", MODES)
     def test_optimal_matches_default(self, sim_cls, tolerance, mode):
-        phi = jnp.array([0.5])
+        inputs = _inputs()
 
         default_sim = sim_cls()
-        default_sim.setup(N_QUBITS, mode, optimal_config=False)
-        default_out = np.asarray(default_sim.run(phi))
+        default_sim.setup(SPEC, mode, optimal_config=False)
+        default_out = np.asarray(default_sim.run(inputs, WEIGHTS))
 
         optimal_sim = sim_cls()
-        optimal_sim.setup(N_QUBITS, mode, optimal_config=True)
-        optimal_out = np.asarray(optimal_sim.run(phi))
+        optimal_sim.setup(SPEC, mode, optimal_config=True)
+        optimal_out = np.asarray(optimal_sim.run(inputs, WEIGHTS))
 
         np.testing.assert_allclose(default_out, optimal_out, atol=tolerance)
 
@@ -148,3 +166,25 @@ class TestPulseRegistry:
 
         cfg = load_config(overrides=["simulators=[jaqsi_pulse,qutip_pulse]"])
         assert cfg.simulators == ["jaqsi_pulse", "qutip_pulse"]
+
+
+class TestPulseSupport:
+    """The pulse adapters only accept what the pulse model transcribes."""
+
+    @pytest.mark.parametrize(
+        "sim_cls", _OTHER_SIMULATORS + [pytest.param(JaqsiPulseBenchmark, id="jaqsi_pulse")]
+    )
+    def test_rejects_families_without_a_transcription(self, sim_cls):
+        assert not sim_cls().supports(build_spec("hea", 2, 1), "state")
+
+    @pytest.mark.parametrize(
+        "sim_cls", _OTHER_SIMULATORS + [pytest.param(JaqsiPulseBenchmark, id="jaqsi_pulse")]
+    )
+    def test_rejects_the_gradient_mode(self, sim_cls):
+        assert not sim_cls().supports(SPEC, "grad")
+
+    @pytest.mark.parametrize(
+        "sim_cls", _OTHER_SIMULATORS + [pytest.param(JaqsiPulseBenchmark, id="jaqsi_pulse")]
+    )
+    def test_accepts_the_pulse_family(self, sim_cls):
+        assert sim_cls().supports(SPEC, "state")

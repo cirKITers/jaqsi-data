@@ -63,15 +63,17 @@ def main(argv: list[str] | None = None) -> None:
     args, overrides = parser.parse_known_args(argv)
 
     from benchmark.config import load_config
-    from benchmark.visualize import (
-        load_results,
-        plot_ratio,
-        plot_absolute,
-        plot_infidelity,
-        print_summary,
-    )
+    from benchmark.threads import pin_threads
 
     if args.visualize_only:
+        from benchmark.visualize import (
+            load_results,
+            plot_ratio,
+            plot_absolute,
+            plot_infidelity,
+            print_summary,
+        )
+
         csv_path = Path(args.visualize_only)
         logger.info(f"Visualise-only mode: loading {csv_path}")
         results = load_results(csv_path)
@@ -95,12 +97,21 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     cfg = load_config(config_path=args.config, overrides=overrides)
+
+    # Must happen before anything pulls in jax, numpy, qulacs, qiskit-aer or
+    # qibo: each of them sizes its thread pool once, at import time.  Nothing
+    # numerical has been imported up to this point, which is why the plotting
+    # imports are inside the branch above and the runner import is below.
+    pin_threads(cfg.threads)
+
     logger.info(f"Benchmark identifier: {cfg.output.identifier}")
     logger.info(
         f"Config: qubits={cfg.qubits.min}–{cfg.qubits.max}, "
         f"modes={cfg.modes}, simulators={cfg.simulators}, "
         f"iters={cfg.execution.n_iters}, "
-        f"batch={cfg.execution.batch_size}, warmup={cfg.warmup}"
+        f"batch={cfg.execution.batch_size}, warmup={cfg.warmup}, "
+        f"circuit={cfg.circuit.family}, layers={cfg.circuit.layers}, "
+        f"threads={cfg.threads}"
     )
 
     from benchmark.runner import run_benchmarks
@@ -108,6 +119,14 @@ def main(argv: list[str] | None = None) -> None:
     csv_path = run_benchmarks(cfg)
 
     if not args.no_plot:
+        from benchmark.visualize import (
+            load_results,
+            plot_ratio,
+            plot_absolute,
+            plot_infidelity,
+            print_summary,
+        )
+
         results = load_results(csv_path)
         print_summary(results)
         plot_ratio(

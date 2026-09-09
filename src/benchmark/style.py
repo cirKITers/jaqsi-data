@@ -26,6 +26,10 @@ COLOURS = [
 SIMULATOR_COLORS: Dict[str, str] = {
     "jaqsi": "#002D4C",      # navy
     "pennylane": "#E69F00",  # orange
+    # Gradient variants of the same framework: lighter and darker orange, so a
+    # gradient figure keeps PennyLane visually grouped.
+    "pennylane_adjoint": "#F0C471",  # light orange
+    "pennylane_psr": "#B37800",      # dark orange
     "qiskit": "#009371",     # teal
     "qibo": "#ed665a",       # salmon
     "qulacs": "#1f78b4",     # blue

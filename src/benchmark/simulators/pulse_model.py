@@ -3,7 +3,7 @@
 JAQSI implements a pulse-level gate as a sequence of time evolutions
 $\\mathrm{d}U/\\mathrm{d}t = -i H(t) U$, one per basis gate of the gate's
 decomposition.  This module restates that sequence for the benchmark circuit
-(Hadamard on every qubit followed by a $CRX(\\phi)$ ring) as plain matrices and
+(a Hadamard layer followed by $CRX$ rings) as plain matrices and
 coefficient callables, so that every simulator adapter integrates the identical
 ODE sequence rather than its own pulse model.
 
@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
 import numpy as np
+
+from benchmark.circuits import CircuitSpec
 
 # Calibrated drag parameters $(A, \beta, \sigma)$ and gate durations, taken
 # from ``PulseEnvelope.REGISTRY`` in jaqsi.
@@ -71,15 +73,16 @@ class Segment:
     """One time evolution of the pulse schedule.
 
     The Hamiltonian is ``coeff(t) * op`` acting on ``wires``, integrated from
-    $0$ to ``duration``.  ``angle_fn`` maps the circuit parameter $\\phi$ to
-    the segment's scale factor; ``drag`` holds the envelope parameters of a
-    driven rotation and is ``None`` for the constant-coefficient gates.
+    $0$ to ``duration``.  ``angle_fn`` maps the circuit's input parameter
+    vector to the segment's scale factor; ``drag`` holds the envelope
+    parameters of a driven rotation and is ``None`` for the
+    constant-coefficient gates.
     """
 
     op: np.ndarray
     wires: Tuple[int, ...]
     duration: float
-    angle_fn: Callable[[float], float]
+    angle_fn: Callable[[np.ndarray], float]
     drag: Optional[Tuple[float, float, float]] = None
 
 
@@ -94,13 +97,13 @@ def drag_env(t, drag: Tuple[float, float, float], xp=np):
     return gaussian * (1.0 - beta * t / (2.0 * sigma**2))
 
 
-def make_coeff_fn(segment: Segment, phi: float, xp=np) -> Callable:
-    """Return the time-dependent coefficient $c(t)$ of *segment* at *phi*.
+def make_coeff_fn(segment: Segment, params, xp=np) -> Callable:
+    """Return the time-dependent coefficient $c(t)$ of *segment* at *params*.
 
     Constant-coefficient segments return their scale factor unchanged, so the
     callable is valid for every segment type.
     """
-    angle = segment.angle_fn(phi)
+    angle = segment.angle_fn(params)
     if segment.drag is None:
         return lambda t: angle
 
@@ -182,17 +185,17 @@ def project_state(psi, mode: str, n_qubits: int, xp=np):
     raise ValueError(f"Unsupported mode: {mode!r}")
 
 
-def _rz(angle_fn: Callable[[float], float], wire: int) -> Segment:
+def _rz(angle_fn: Callable[[np.ndarray], float], wire: int) -> Segment:
     """Virtual $RZ$: constant $H = \\frac{w}{2} Z$ over a unit time span."""
     return Segment(
         op=PAULI_Z,
         wires=(wire,),
         duration=1.0,
-        angle_fn=lambda phi: RZ_SCALE * angle_fn(phi),
+        angle_fn=lambda params: RZ_SCALE * angle_fn(params),
     )
 
 
-def _ry(angle_fn: Callable[[float], float], wire: int) -> Segment:
+def _ry(angle_fn: Callable[[np.ndarray], float], wire: int) -> Segment:
     """Driven $RY$ rotation with the calibrated drag envelope."""
     return Segment(
         op=PAULI_Y,
@@ -209,7 +212,7 @@ def _cz(control: int, target: int) -> Segment:
         op=H_CZ,
         wires=(control, target),
         duration=1.0,
-        angle_fn=lambda phi: CZ_SCALE * np.pi,
+        angle_fn=lambda params: CZ_SCALE * np.pi,
     )
 
 
@@ -219,15 +222,15 @@ def _correction(wire: int) -> Segment:
         op=H_CORRECTION,
         wires=(wire,),
         duration=1.0,
-        angle_fn=lambda phi: -1.0,
+        angle_fn=lambda params: -1.0,
     )
 
 
 def _hadamard(wire: int) -> List[Segment]:
     """Hadamard as $RZ(\\pi)$, $RY(\\frac{\\pi}{2})$ and the correction phase."""
     return [
-        _rz(lambda phi: np.pi, wire),
-        _ry(lambda phi: np.pi / 2, wire),
+        _rz(lambda params: np.pi, wire),
+        _ry(lambda params: np.pi / 2, wire),
         _correction(wire),
     ]
 
@@ -237,27 +240,36 @@ def _cnot(control: int, target: int) -> List[Segment]:
     return [*_hadamard(target), _cz(control, target), *_hadamard(target)]
 
 
-def _crx(control: int, target: int) -> List[Segment]:
-    """$CRX(\\phi)$ as two $CX$ interleaved with $RY(\\pm\\frac{\\phi}{2})$."""
+def _crx(control: int, target: int, index: int) -> List[Segment]:
+    """$CRX(\\phi)$ as two $CX$ interleaved with $RY(\\pm\\frac{\\phi}{2})$.
+
+    *index* is the position of this gate's angle within the circuit's input
+    parameter vector.
+    """
     return [
-        _rz(lambda phi: np.pi / 2, target),
-        _ry(lambda phi: phi / 2, target),
+        _rz(lambda params: np.pi / 2, target),
+        _ry(lambda params: params[index] / 2, target),
         *_cnot(control, target),
-        _ry(lambda phi: -phi / 2, target),
+        _ry(lambda params: -params[index] / 2, target),
         *_cnot(control, target),
-        _rz(lambda phi: -np.pi / 2, target),
+        _rz(lambda params: -np.pi / 2, target),
     ]
 
 
-def build_schedule(n_qubits: int) -> List[Segment]:
-    """Return the pulse schedule of the benchmark circuit in execution order.
+def build_schedule(spec: CircuitSpec) -> List[Segment]:
+    """Return the pulse schedule of *spec* in execution order.
 
-    The circuit applies a Hadamard to every qubit and then a $CRX(\\phi)$ ring
-    $i \\to (i + 1) \\bmod n$, which decomposes into $21 n$ segments.
+    Only the Hadamard and $CRX$ decompositions are transcribed, so the
+    ``crx_ring`` family is the only one with a pulse-level counterpart: its
+    Hadamard layer contributes $3 n$ segments and every $CRX$ ring another
+    $18 n$, i.e. $21 n$ at a depth of one.
     """
     segments: List[Segment] = []
-    for i in range(n_qubits):
-        segments.extend(_hadamard(i))
-    for i in range(n_qubits):
-        segments.extend(_crx(i, (i + 1) % n_qubits))
+    for op in spec.ops:
+        if op.gate == "H":
+            segments.extend(_hadamard(op.wires[0]))
+        elif op.gate == "CRX":
+            segments.extend(_crx(op.wires[0], op.wires[1], op.index))
+        else:
+            raise ValueError(f"Gate {op.gate!r} has no pulse transcription")
     return segments

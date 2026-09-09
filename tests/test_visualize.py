@@ -27,11 +27,15 @@ def _write_pulse_csv(path: Path) -> Path:
         w.writerow(CSV_COLUMNS)
         for q in (2, 3):
             # expval leaves the column empty, state fills it (including a zero).
-            w.writerow((q, "expval", "jaqsi_pulse", "1.0", "0.1", 1, 10, ""))
-            w.writerow((q, "expval", "qutip_pulse", "4.0", "0.2", 1, 10, ""))
-            w.writerow((q, "state", "jaqsi_pulse", "1.0", "0.1", 1, 10,
+            w.writerow(("crx_ring", 1, q, "expval", "jaqsi_pulse",
+                        "1.0", "0.1", 1, 10, 1, ""))
+            w.writerow(("crx_ring", 1, q, "expval", "qutip_pulse",
+                        "4.0", "0.2", 1, 10, 1, ""))
+            w.writerow(("crx_ring", 1, q, "state", "jaqsi_pulse",
+                        "1.0", "0.1", 1, 10, 1,
                         "0.000000e+00" if q == 2 else "2.220446e-16"))
-            w.writerow((q, "state", "qutip_pulse", "4.0", "0.2", 1, 10, "1.1e-14"))
+            w.writerow(("crx_ring", 1, q, "state", "qutip_pulse",
+                        "4.0", "0.2", 1, 10, 1, "1.1e-14"))
     return path
 
 
@@ -81,6 +85,27 @@ class TestLoadResults:
         with pytest.raises(FileNotFoundError):
             load_results(tmp_path / "nope.csv")
 
+    def test_sweep_is_narrowed_to_one_slice(self, tmp_path: Path):
+        """Rows from other depths must not collide with the plotted slice."""
+        import csv
+        from benchmark.runner import CSV_COLUMNS
+
+        p = tmp_path / "sweep.csv"
+        with open(p, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(CSV_COLUMNS)
+            for layers, mean in ((1, "1.0"), (4, "9.0")):
+                w.writerow(("hea", layers, 2, "probs", "jaqsi", mean, "0.1", 1, 10, 1))
+                w.writerow(("hea", layers, 3, "probs", "jaqsi", mean, "0.1", 1, 10, 1))
+
+        # Without a filter the first slice in the file wins.
+        results = load_results(p)
+        assert results["probs"].simulators["jaqsi"].mean_ms == [1.0, 1.0]
+
+        # An explicit filter selects any other slice.
+        results = load_results(p, n_layers=4)
+        assert results["probs"].simulators["jaqsi"].mean_ms == [9.0, 9.0]
+
     def test_partial_csv_skips_incomplete(self, tmp_path: Path):
         """If a (n_qubits, mode) pair is missing a simulator that exists
         elsewhere in the file, that row should be skipped."""
@@ -92,10 +117,10 @@ class TestLoadResults:
             w = csv.writer(f)
             w.writerow(CSV_COLUMNS)
             # probs@2: only jaqsi — incomplete
-            w.writerow((2, "probs", "jaqsi", "1.0", "0.1", 1, 10))
+            w.writerow(("hea", 1, 2, "probs", "jaqsi", "1.0", "0.1", 1, 10, 1))
             # probs@3: both simulators — complete
-            w.writerow((3, "probs", "jaqsi", "2.0", "0.2", 1, 10))
-            w.writerow((3, "probs", "pennylane", "4.0", "0.3", 1, 10))
+            w.writerow(("hea", 1, 3, "probs", "jaqsi", "2.0", "0.2", 1, 10, 1))
+            w.writerow(("hea", 1, 3, "probs", "pennylane", "4.0", "0.3", 1, 10, 1))
         results = load_results(p)
         # Only probs@3 should be included (probs@2 is incomplete)
         assert "probs" in results

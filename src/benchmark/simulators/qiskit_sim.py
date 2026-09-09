@@ -6,13 +6,13 @@ Uses Qiskit's local statevector / density-matrix simulation
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Dict, Tuple
 
 import numpy as np
 import jax.numpy as jnp
 
 from qiskit import transpile
-from qiskit.circuit import QuantumCircuit, Parameter
+from qiskit.circuit import QuantumCircuit, ParameterVector
 from qiskit.quantum_info import (
     DensityMatrix,
     SparsePauliOp,
@@ -20,7 +20,33 @@ from qiskit.quantum_info import (
 )
 from qiskit_aer import AerSimulator
 
+from benchmark.circuits import CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode, _endian_reverse_indices
+
+
+def _build_circuit(
+    spec: CircuitSpec,
+) -> Tuple[QuantumCircuit, ParameterVector, ParameterVector]:
+    """Return the parametric circuit of *spec* and its two parameter vectors."""
+    x = ParameterVector("x", spec.n_inputs)
+    w = ParameterVector("w", spec.n_weights)
+    vectors = {"inputs": x, "weights": w}
+
+    qc = QuantumCircuit(spec.n_qubits)
+    for op in spec.ops:
+        if op.gate == "H":
+            qc.h(op.wires[0])
+        elif op.gate == "RX":
+            qc.rx(vectors[op.source][op.index], op.wires[0])
+        elif op.gate == "RZ":
+            qc.rz(vectors[op.source][op.index], op.wires[0])
+        elif op.gate == "CRX":
+            qc.crx(vectors[op.source][op.index], op.wires[0], op.wires[1])
+        elif op.gate == "CNOT":
+            qc.cx(op.wires[0], op.wires[1])
+        else:
+            raise ValueError(f"Unsupported gate: {op.gate!r}")
+    return qc, x, w
 
 
 class QiskitBenchmark(SimulatorBenchmark):
@@ -28,36 +54,42 @@ class QiskitBenchmark(SimulatorBenchmark):
 
     def __init__(self) -> None:
         self._circuit: QuantumCircuit | None = None
-        self._param: Parameter | None = None
+        self._x: ParameterVector | None = None
+        self._w: ParameterVector | None = None
         self._mode: Mode = "probs"
         self._n_qubits: int = 0
-        self._run_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None
+        self._run_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None
+
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        # Qiskit's gradient interface lives in the separate qiskit-algorithms
+        # package, which is not a dependency here; the forward measurements are
+        # unaffected.
+        return mode != "grad"
 
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def setup(self, n_qubits: int, mode: Mode, *, optimal_config: bool = False) -> None:
-        self._n_qubits = n_qubits
+    def setup(
+        self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
+    ) -> None:
+        self._n_qubits = spec.n_qubits
         self._mode = mode
-
-        phi = Parameter("phi")
-        self._param = phi
-
-        qc = QuantumCircuit(n_qubits)
-        for i in range(n_qubits):
-            qc.h(i)
-        for i in range(n_qubits):
-            qc.crx(phi, i, (i + 1) % n_qubits)
-        self._circuit = qc
+        self._circuit, self._x, self._w = _build_circuit(spec)
 
         # Pre-build the run function for the chosen mode to avoid
         # repeated branching inside the hot loop.
-        self._run_fn = self._make_run_fn(mode, n_qubits, optimal_config)
+        self._run_fn = self._make_run_fn(mode, spec.n_qubits, optimal_config)
+
+    def _bindings(self, sample: np.ndarray, weights: np.ndarray) -> Dict:
+        """Map one sample and the shared weights onto the circuit parameters."""
+        binding = {self._x[i]: float(v) for i, v in enumerate(sample)}
+        binding.update({self._w[i]: float(v) for i, v in enumerate(weights)})
+        return binding
 
     def _make_run_fn(
         self, mode: Mode, n_qubits: int, optimal_config: bool
-    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
-        """Return a callable that maps a batch of phi values to results."""
+    ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+        """Return a callable that maps a batch of inputs to results."""
 
         # Pre-compute the endian-reversal index permutation once.
         perm = _endian_reverse_indices(n_qubits)
@@ -67,10 +99,11 @@ class QiskitBenchmark(SimulatorBenchmark):
 
         if mode == "state":
 
-            def _run_state(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_state(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = self._circuit.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = self._circuit.assign_parameters(self._bindings(sample, w))
                     sv = Statevector.from_instruction(bound)
                     # Reverse qubit ordering: little-endian → big-endian
                     results.append(sv.data[perm])
@@ -80,10 +113,11 @@ class QiskitBenchmark(SimulatorBenchmark):
 
         elif mode == "probs":
 
-            def _run_probs(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_probs(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = self._circuit.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = self._circuit.assign_parameters(self._bindings(sample, w))
                     sv = Statevector.from_instruction(bound)
                     # Reverse qubit ordering: little-endian → big-endian
                     results.append(sv.probabilities()[perm])
@@ -103,10 +137,11 @@ class QiskitBenchmark(SimulatorBenchmark):
                 label = "I" * (n_qubits - 1 - i) + "Z" + "I" * i
                 obs_list.append(SparsePauliOp(label))
 
-            def _run_expval(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_expval(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = self._circuit.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = self._circuit.assign_parameters(self._bindings(sample, w))
                     sv = Statevector.from_instruction(bound)
                     evs = [float(sv.expectation_value(obs).real) for obs in obs_list]
                     results.append(evs)
@@ -116,10 +151,11 @@ class QiskitBenchmark(SimulatorBenchmark):
 
         elif mode == "density":
 
-            def _run_density(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = self._circuit.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = self._circuit.assign_parameters(self._bindings(sample, w))
                     dm = DensityMatrix.from_instruction(bound)
                     # Reverse qubit ordering on both axes
                     results.append(dm.data[np.ix_(perm, perm)])
@@ -132,13 +168,13 @@ class QiskitBenchmark(SimulatorBenchmark):
 
     def _make_aer_run_fn(
         self, mode: Mode, n_qubits: int, perm: np.ndarray
-    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
         """Return a run function backed by the qiskit-aer C++ simulator.
 
         Aer uses the same little-endian basis order as quantum_info, so the
         endian-reversal permutation *perm* is applied identically.  The circuit
         is transpiled once outside the timing loop; parameter binding stays a
-        per-phi loop to mirror the default path.
+        per-sample loop to mirror the default path.
         """
         method = "density_matrix" if mode == "density" else "statevector"
         sim = AerSimulator(method=method, precision="double")
@@ -148,10 +184,11 @@ class QiskitBenchmark(SimulatorBenchmark):
             qc.save_statevector(label="sv")
             qc = transpile(qc, sim)
 
-            def _run_state(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_state(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = qc.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = qc.assign_parameters(self._bindings(sample, w))
                     sv = np.asarray(sim.run(bound).result().data(0)["sv"])
                     results.append(sv[perm])
                 return jnp.array(np.stack(results))
@@ -163,10 +200,11 @@ class QiskitBenchmark(SimulatorBenchmark):
             qc.save_probabilities(label="probs")
             qc = transpile(qc, sim)
 
-            def _run_probs(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_probs(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = qc.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = qc.assign_parameters(self._bindings(sample, w))
                     probs = np.asarray(sim.run(bound).result().data(0)["probs"])
                     results.append(probs[perm])
                 return jnp.array(np.stack(results))
@@ -184,10 +222,11 @@ class QiskitBenchmark(SimulatorBenchmark):
                 )
             qc = transpile(qc, sim)
 
-            def _run_expval(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_expval(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = qc.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = qc.assign_parameters(self._bindings(sample, w))
                     data = sim.run(bound).result().data(0)
                     evs = [float(np.real(data[f"z{i}"])) for i in range(n_qubits)]
                     results.append(evs)
@@ -200,10 +239,11 @@ class QiskitBenchmark(SimulatorBenchmark):
             qc.save_density_matrix(label="dm")
             qc = transpile(qc, sim)
 
-            def _run_density(phi_batch: jnp.ndarray) -> jnp.ndarray:
+            def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
+                w = np.asarray(weights)
                 results = []
-                for phi_val in np.asarray(phi_batch):
-                    bound = qc.assign_parameters({self._param: float(phi_val)})
+                for sample in np.asarray(inputs):
+                    bound = qc.assign_parameters(self._bindings(sample, w))
                     dm = np.asarray(sim.run(bound).result().data(0)["dm"])
                     results.append(dm[np.ix_(perm, perm)])
                 return jnp.array(np.stack(results))
@@ -216,10 +256,10 @@ class QiskitBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
-    def warmup(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def warmup(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs, weights)
 
-    def run(self, phi: jnp.ndarray) -> jnp.ndarray:
+    def run(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
         assert self._run_fn is not None
-        return self._run_fn(phi)
+        return self._run_fn(inputs, weights)
