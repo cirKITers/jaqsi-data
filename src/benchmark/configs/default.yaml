@@ -26,9 +26,6 @@ circuit:
   family: hea
   layers:
     - 1
-    - 2
-    - 4
-    - 8
 
 # Qubit sweep range (inclusive)
 qubits:
@@ -37,7 +34,7 @@ qubits:
 
 # Execution settings
 execution:
-  n_iters: 100
+  n_iters: 20
   batch_size: 10
 
 # Which measurement modes to benchmark.  `grad` is not a measurement but the

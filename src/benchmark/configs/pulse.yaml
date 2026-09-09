@@ -46,7 +46,7 @@ execution:
 # simulation only; `grad` is a gate-level mode.
 modes:
   - expval
-  - state
+  # - state
   - density
   # - probs
 
