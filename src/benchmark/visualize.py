@@ -156,7 +156,7 @@ MACHINE_EPS = 2.220446049250313e-16
 def _figsize(n_modes: int) -> Tuple[float, float]:
     """Figure size for *n_modes* side-by-side panels."""
     width = COLUMNWIDTH_IN if n_modes <= 2 else TEXTWIDTH_IN
-    return width, max(2.2, width / n_modes * 0.8)
+    return width, max(1.9, width / n_modes * 0.8)
 
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
@@ -185,9 +185,10 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
     """Lay out the subplots and add one de-duplicated legend above them.
 
     All subplots share the same simulators, so a single horizontal legend on
-    top is cleaner than per-axis legends overlapping the data.  A single-column
-    figure is too narrow for one legend row, so the entries wrap and the
-    reserved headroom grows with the number of rows.
+    top is cleaner than per-axis legends overlapping the data.  The handle and
+    spacing are tightened so that up to five entries still fit into one row of
+    a single-column figure; beyond that the entries wrap and the reserved
+    headroom grows with the number of rows.
     """
     handles: list = []
     labels: list = []
@@ -202,7 +203,7 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
         fig.tight_layout()
         return
 
-    ncol = min(len(labels), 3 if fig.get_figwidth() < 5 else 6)
+    ncol = min(len(labels), 5 if fig.get_figwidth() < 5 else 8)
     rows = -(-len(labels) // ncol)
     fig.tight_layout(rect=(0, 0, 1, 1 - 0.065 * rows))
     fig.legend(
@@ -211,6 +212,9 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
         loc="upper center",
         ncol=ncol,
         bbox_to_anchor=(0.5, 1.0),
+        handlelength=0.9,
+        handletextpad=0.4,
+        columnspacing=0.6,
     )
 
 
@@ -259,7 +263,9 @@ def _infidelity_series(
 
 def _label(sim: str) -> str:
     """Display name for a simulator; pulse adapters drop their suffix."""
-    return sim.removesuffix("_pulse").capitalize()
+    name = sim.removesuffix("_pulse")
+    # Spell the names the way their projects do (and the paper text does).
+    return {"jaqsi": "JAQSI", "pennylane": "PennyLane", "qutip": "QuTiP", "dynamiqs": "dynamiqs"}.get(name, name.capitalize())
 
 
 def _pick_reference(results: Dict[str, ModeResults]) -> str:
