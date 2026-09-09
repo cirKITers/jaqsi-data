@@ -1,9 +1,9 @@
 """Qibo simulator benchmark adapter.
 
 Local statevector / density-matrix simulation, no external provider or API key
-required.  ``optimal_config`` selects the numpy backend and the default path
-selects qibojit; see :meth:`QiboBenchmark.setup` for why that is the reverse of
-what Qibo's packaging suggests.
+required.  ``optimal_config`` selects qibojit for the density mode and numpy
+for the state-vector modes; see :meth:`QiboBenchmark.setup` for the measurements
+behind that split.
 """
 
 from __future__ import annotations
@@ -73,21 +73,24 @@ class QiboBenchmark(SimulatorBenchmark):
         # Backend selection is global to the process but only affects Qibo, so
         # it is set on every call and neither path can leak into the other.
         #
-        # Note the assignment is the reverse of what Qibo's own packaging
-        # suggests: ``optimal_config`` selects numpy, not qibojit.  qibojit
-        # parallelises its kernels with numba, which only pays off once the
-        # register is large enough to amortise the launches, and this benchmark
-        # never gets there.  Measured on the hardware-efficient ansatz at ten
-        # qubits, four layers and batch 10, numpy beats qibojit by 1.3x at one
-        # thread and by 10x at sixteen, the gap widening with every thread
-        # added.  Selecting qibojit here would report Qibo at its worst
-        # configuration.  It stays reachable on the other path so that a sweep
-        # wide enough to favour it can still measure it.
-        if optimal_config:
-            # Single-threaded by construction, and it rejects ``set_threads``
-            # for any count above one, so it is left alone.
-            set_backend("numpy")
-        else:
+        # Which backend is faster depends on the mode, and neither wins
+        # everywhere, so the optimal configuration picks per mode.  qibojit
+        # parallelises its kernels with numba, which pays off once the operand
+        # is large enough to amortise the launches; a density matrix holds
+        # $4^n$ entries against a state vector's $2^n$, so it crosses that
+        # point while the state-vector modes never do.  Measured on the
+        # hardware-efficient ansatz at four layers, batch 10, sixteen threads:
+        #
+        #     mode     n     numpy      qibojit
+        #     expval   8     47 ms      934 ms     numpy   20x
+        #     state    8     39 ms      470 ms     numpy   12x
+        #     density  9     14182 ms   1078 ms    qibojit 13x
+        #     density  10    66491 ms   2452 ms    qibojit 27x
+        #
+        # Picking one backend for everything costs an order of magnitude on
+        # half the sweep either way.  The qiskit adapter selects its Aer method
+        # by mode for the same reason.
+        if optimal_config and mode == "density":
             set_backend("qibojit", platform="numba")
             # qibojit's constructor pins numba to one thread per available
             # core, ignoring the environment, so it is the one backend that has
@@ -97,6 +100,10 @@ class QiboBenchmark(SimulatorBenchmark):
             threads = num_threads()
             if threads is not None:
                 set_threads(threads)
+        else:
+            # Single-threaded by construction, and it rejects ``set_threads``
+            # for any count above one, so it is left alone.
+            set_backend("numpy")
 
         self._spec = spec
         self._n_qubits = spec.n_qubits
