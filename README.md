@@ -95,6 +95,21 @@ Cores are taken from the set already permitted, so a narrower allocation from a 
 
 This is not cosmetic. qibojit sizes numba from `len(psutil.Process().cpu_affinity())` in its backend constructor and ignores every environment variable, so without pinning it takes one thread per core while nothing else does. On a 16-core machine that moved its two-qubit `expval` time from 14 ms to 2.6 ms once pinned to one thread, because thread coordination dominates at small register sizes.
 
+Qibo is the one backend that cannot be pinned through the environment at all: qibojit sizes numba inside its constructor, so the adapter calls `qibo.set_threads` afterwards. The numpy backend is skipped there, because it is single-threaded by construction and raises for any count above one.
+
+Neither Qibo backend wins everywhere, so `optimal_config` picks per mode: qibojit for `density`, numpy for the state-vector modes. Measured on the hardware-efficient ansatz at four layers, batch 10, sixteen threads:
+
+| Mode | Qubits | numpy | qibojit | Winner |
+|---|---|---|---|---|
+| expval | 8 | 47 ms | 934 ms | numpy, 20x |
+| state | 8 | 39 ms | 470 ms | numpy, 12x |
+| density | 9 | 14182 ms | 1078 ms | qibojit, 13x |
+| density | 10 | 66491 ms | 2452 ms | qibojit, 27x |
+
+qibojit parallelises its kernels with numba, which pays off once the operand is large enough to amortise the launches. A density matrix holds $4^n$ entries against a state vector's $2^n$, so it crosses that point while the state-vector modes never do. Committing to either backend for the whole sweep costs an order of magnitude on half of it. The Qiskit adapter selects its Aer method by mode for the same reason.
+
+The margins shift with thread count. At one thread qibojit is only 2x behind on the state-vector modes and 5.4x ahead on density at eight qubits; at sixteen the state-vector gap widens to 20x. The split above holds in both regimes, but re-measure before trusting a single backend anywhere.
+
 `NUMBA_NUM_THREADS` is deliberately not set. It is a hard cap, and qibojit's constructor requests one thread per core it can see, so a lower cap makes numba raise and the backend fails to build. Narrowing the affinity changes what that constructor sees instead.
 
 The default is one thread, the single-thread regime Yao, Qulacs and JuliVQC report. Set `threads` to the core count for the multi-threaded regime and report the two separately; the value is recorded per row, and it is part of the recovery key, so both regimes can accumulate in one results file.
@@ -169,7 +184,7 @@ uv run python -m benchmark qubits.max=10 execution.n_iters=20
 ### Run with optimized simulator configurations
 
 By default each competitor simulator runs in its baseline configuration.
-Setting `optimal_config=true` switches them to performance-optimized configurations (PennyLane: `jax.jit`-compiled QNode; Qiskit: qiskit-aer C++ simulator; Qibo: qibojit numba backend; Qulacs: gate-fusion via `QuantumCircuitOptimizer`). 
+Setting `optimal_config=true` switches them to performance-optimized configurations (PennyLane: `jax.jit`-compiled QNode; Qiskit: qiskit-aer C++ simulator; Qibo: qibojit for density and numpy for the state-vector modes; Qulacs: gate-fusion via `QuantumCircuitOptimizer`). 
 These configurations are numerically equivalent to the defaults.
 JAQSI is unaffected.
 
