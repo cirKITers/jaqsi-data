@@ -28,9 +28,11 @@ WORKDIR /app
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_PYTHON=/usr/local/bin/python3 \
     UV_PYTHON_DOWNLOADS=never \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    UV_CONCURRENT_INSTALLS=8
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project && uv cache clean
+RUN ulimit -n 65536 2>/dev/null || true; \
+    uv sync --frozen --no-install-project && uv cache clean
 
 # PYTHONDONTWRITEBYTECODE keeps __pycache__ out of the mounted checkout.
 ENV PATH=/opt/venv/bin:${PATH} \
