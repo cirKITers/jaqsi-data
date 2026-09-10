@@ -25,8 +25,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 # Gates the adapters have to implement.  Kept deliberately small: every family
 # below decomposes into these, and a simulator missing one of them would not be
-# a fair comparison anyway.
-GATES = ("H", "RX", "RZ", "CRX", "CNOT")
+# a fair comparison anyway.  ``DEPOL`` is the single-qubit depolarizing channel
+# :func:`build_spec` inserts for the ``noise`` mode.
+GATES = ("H", "RX", "RZ", "CRX", "CNOT", "DEPOL")
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,11 @@ class Op:
 
 @dataclass(frozen=True)
 class CircuitSpec:
-    """A benchmark circuit at a fixed qubit count and depth."""
+    """A benchmark circuit at a fixed qubit count and depth.
+
+    ``depolarizing`` is the probability of every ``DEPOL`` channel in ``ops``,
+    and zero for a noise-free circuit.
+    """
 
     family: str
     n_qubits: int
@@ -54,6 +59,7 @@ class CircuitSpec:
     n_inputs: int
     n_weights: int
     ops: Tuple[Op, ...]
+    depolarizing: float = 0.0
 
     @property
     def trainable(self) -> str:
@@ -128,8 +134,16 @@ FAMILIES: Dict[str, Callable[[int, int], Tuple[List[Op], int, int]]] = {
 PULSE_FAMILIES = frozenset({"crx_ring"})
 
 
-def build_spec(family: str, n_qubits: int, n_layers: int) -> CircuitSpec:
-    """Return the :class:`CircuitSpec` of *family* at the given size."""
+def build_spec(
+    family: str, n_qubits: int, n_layers: int, depolarizing: float = 0.0
+) -> CircuitSpec:
+    """Return the :class:`CircuitSpec` of *family* at the given size.
+
+    A non-zero *depolarizing* follows every gate with a single-qubit
+    depolarizing channel of that probability on each wire the gate acts on.
+    The channels are ops like the gates, rather than left to each framework's
+    noise model, so every simulator applies the same channel sequence.
+    """
     if family not in FAMILIES:
         raise ValueError(
             f"Unknown circuit family: {family!r}. Available: {sorted(FAMILIES)}"
@@ -138,6 +152,12 @@ def build_spec(family: str, n_qubits: int, n_layers: int) -> CircuitSpec:
         raise ValueError(f"n_layers must be at least 1, got {n_layers}")
 
     ops, n_inputs, n_weights = FAMILIES[family](n_qubits, n_layers)
+    if depolarizing:
+        noisy = []
+        for op in ops:
+            noisy.append(op)
+            noisy.extend(Op("DEPOL", (w,)) for w in op.wires)
+        ops = noisy
     return CircuitSpec(
         family=family,
         n_qubits=n_qubits,
@@ -145,6 +165,7 @@ def build_spec(family: str, n_qubits: int, n_layers: int) -> CircuitSpec:
         n_inputs=n_inputs,
         n_weights=n_weights,
         ops=tuple(ops),
+        depolarizing=depolarizing,
     )
 
 
