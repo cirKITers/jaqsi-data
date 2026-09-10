@@ -36,7 +36,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "b57cf76d19aaaff8256f2de665f51b241f4e943f" }
+jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "8dbdbaf174b06a61d3668eab7b76b6d0716c3708" }
 # The dynamiqs release on PyPI (0.3.4) caps jax<0.7, which conflicts with
 # jaqsi.  The relaxed bound (jax>=0.4.36, !=0.7.0, !=0.7.1) only
 # exists on the development branch, so pin a commit from there.
