@@ -18,6 +18,7 @@ from benchmark.runner import (
     _infidelity,
     _load_completed,
     _validate_results,
+    run_benchmarks,
 )
 from benchmark.simulators.base import BenchmarkResult
 from benchmark.config import load_config
@@ -324,3 +325,33 @@ class TestInfidelityColumn:
         with open(path, newline="") as f:
             row = list(csv.DictReader(f))[0]
         assert row["infidelity"] == ""
+
+
+class TestNoiseMode:
+    """Only the noise mode is handed a circuit with depolarizing channels."""
+
+    def test_channels_reach_the_noise_mode_only(self, tmp_path: Path, monkeypatch):
+        from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
+
+        seen = {}
+        setup = JaqsiBenchmark.setup
+
+        def recording_setup(self, spec, mode, **kwargs):
+            seen[mode] = spec.depolarizing
+            return setup(self, spec, mode, **kwargs)
+
+        monkeypatch.setattr(JaqsiBenchmark, "setup", recording_setup)
+        cfg = load_config(
+            overrides=[
+                f"output.dir={tmp_path}",
+                "simulators=[jaqsi]",
+                "modes=[expval,noise]",
+                "qubits.min=2",
+                "qubits.max=2",
+                "circuit.layers=[1]",
+                "execution.n_iters=1",
+                "execution.batch_size=1",
+            ]
+        )
+        run_benchmarks(cfg)
+        assert seen == {"expval": 0.0, "noise": cfg.depolarizing}

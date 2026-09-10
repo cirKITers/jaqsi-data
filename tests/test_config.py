@@ -203,3 +203,16 @@ class TestThreadsConfig:
     def test_non_positive_raises(self, threads):
         with pytest.raises(ValueError, match="threads must be at least 1"):
             load_config(overrides=[f"threads={threads}"])
+
+
+class TestDepolarizingConfig:
+    """The noise mode's channel probability is validated at load time."""
+
+    def test_override(self):
+        cfg = load_config(overrides=["depolarizing=0.2"])
+        assert cfg.depolarizing == 0.2
+
+    @pytest.mark.parametrize("p", [0.0, -0.1, 1.5])
+    def test_out_of_range_raises(self, p):
+        with pytest.raises(ValueError, match="depolarizing must be in"):
+            load_config(overrides=[f"depolarizing={p}"])
