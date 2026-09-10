@@ -3,7 +3,7 @@ name = "jaqsi-data"
 version = "0.1.0"
 description = "Benchmarking related experiments for the JAQSI simulator"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "jaqsi",
     "omegaconf>=2.3",
@@ -36,7 +36,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "dd7df1b144cd9e2b13c41bf9da2246d203b1f18a" }
+jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "b57cf76d19aaaff8256f2de665f51b241f4e943f" }
 # The dynamiqs release on PyPI (0.3.4) caps jax<0.7, which conflicts with
 # jaqsi.  The relaxed bound (jax>=0.4.36, !=0.7.0, !=0.7.1) only
 # exists on the development branch, so pin a commit from there.
