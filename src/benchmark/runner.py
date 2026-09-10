@@ -303,10 +303,16 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
 
     for n_layers in cfg.circuit.layers:
         for n_qubits in qubit_sizes:
-            spec = build_spec(cfg.circuit.family, n_qubits, n_layers)
-
             for mode in cfg.modes:
                 mode: Mode  # type: ignore[no-redef]
+
+                # Only the noise mode carries depolarizing channels.
+                spec = build_spec(
+                    cfg.circuit.family,
+                    n_qubits,
+                    n_layers,
+                    depolarizing=cfg.depolarizing if mode == "noise" else 0.0,
+                )
 
                 active: List[SimulatorBenchmark] = []
                 for sim in simulators:

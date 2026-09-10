@@ -70,6 +70,9 @@ class BenchmarkConfig:
     # the Yao, Qulacs and JuliVQC benchmarks report; raise it for the
     # multi-threaded regime and report the two separately.
     threads: int = 1
+    # Probability of the single-qubit depolarizing channel the ``noise`` mode
+    # applies after every gate, on each wire the gate acts on.
+    depolarizing: float = 0.01
     precision: float = 1.0e-8
     optimal_config: bool = False
     circuit: CircuitConfig = field(default_factory=CircuitConfig)
@@ -155,5 +158,12 @@ def load_config(
 
     if cfg.threads < 1:
         raise ValueError(f"threads must be at least 1, got {cfg.threads}")
+
+    # At zero the noise mode has no channels, and jaqsi would take the
+    # state-vector route that mode exists to rule out.
+    if not 0.0 < cfg.depolarizing <= 1.0:
+        raise ValueError(
+            f"depolarizing must be in (0, 1], got {cfg.depolarizing}"
+        )
 
     return cfg
