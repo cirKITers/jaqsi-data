@@ -19,7 +19,7 @@ from qulacs import (
     QuantumState,
 )
 from qulacs.circuit import QuantumCircuitOptimizer
-from qulacs.gate import DenseMatrix
+from qulacs.gate import DenseMatrix, DepolarizingNoise
 
 from benchmark.circuits import CircuitSpec, Op
 from benchmark.simulators.base import SimulatorBenchmark, Mode, _endian_reverse_indices
@@ -84,6 +84,8 @@ def _build_circuit(
             )
         elif op.gate == "CNOT":
             circuit.add_CNOT_gate(op.wires[0], op.wires[1])
+        elif op.gate == "DEPOL":
+            circuit.add_gate(DepolarizingNoise(op.wires[0], spec.depolarizing))
         else:
             raise ValueError(f"Unsupported gate: {op.gate!r}")
     return circuit
@@ -167,7 +169,9 @@ class QulacsBenchmark(SimulatorBenchmark):
 
         def _build(sample: np.ndarray, weights: np.ndarray) -> QuantumCircuit:
             circuit = _build_circuit(spec, sample, weights)
-            if optimal_config:
+            # The optimizer treats Qulacs' probabilistic noise gates as the
+            # identity and fuses them away, so a noisy circuit runs unfused.
+            if optimal_config and mode != "noise":
                 # In-place gate fusion; numerically identical to the default.
                 QuantumCircuitOptimizer().optimize_light(circuit)
             return circuit
@@ -228,7 +232,7 @@ class QulacsBenchmark(SimulatorBenchmark):
 
             return _run_expval
 
-        elif mode == "density":
+        elif mode in ("density", "noise"):
 
             def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
                 w = np.asarray(weights)

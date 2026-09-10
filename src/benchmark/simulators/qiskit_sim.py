@@ -19,6 +19,7 @@ from qiskit.quantum_info import (
     Statevector,
 )
 from qiskit_aer import AerSimulator
+from qiskit_aer.noise import depolarizing_error
 
 from benchmark.circuits import CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode, _endian_reverse_indices
@@ -44,6 +45,12 @@ def _build_circuit(
             qc.crx(vectors[op.source][op.index], op.wires[0], op.wires[1])
         elif op.gate == "CNOT":
             qc.cx(op.wires[0], op.wires[1])
+        elif op.gate == "DEPOL":
+            # Appended as an instruction rather than through a NoiseModel: Aer
+            # attaches model errors per basis gate after transpilation, which
+            # splits CRX into several gates.  Qiskit's $\lambda$ is the
+            # probability $p$ of the other frameworks at $\lambda = 4p/3$.
+            qc.append(depolarizing_error(4 * spec.depolarizing / 3, 1), [op.wires[0]])
         else:
             raise ValueError(f"Unsupported gate: {op.gate!r}")
     return qc, x, w
@@ -149,7 +156,7 @@ class QiskitBenchmark(SimulatorBenchmark):
 
             return _run_expval
 
-        elif mode == "density":
+        elif mode in ("density", "noise"):
 
             def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
                 w = np.asarray(weights)
@@ -176,7 +183,7 @@ class QiskitBenchmark(SimulatorBenchmark):
         is transpiled once outside the timing loop; parameter binding stays a
         per-sample loop to mirror the default path.
         """
-        method = "density_matrix" if mode == "density" else "statevector"
+        method = "density_matrix" if mode in ("density", "noise") else "statevector"
         sim = AerSimulator(method=method, precision="double")
 
         if mode == "state":
@@ -234,7 +241,7 @@ class QiskitBenchmark(SimulatorBenchmark):
 
             return _run_expval
 
-        elif mode == "density":
+        elif mode in ("density", "noise"):
             qc = self._circuit.copy()
             qc.save_density_matrix(label="dm")
             qc = transpile(qc, sim)

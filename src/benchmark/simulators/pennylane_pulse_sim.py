@@ -79,8 +79,9 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
 
     def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
         # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
-        # decompositions, and the pulse level measures forward simulation only.
-        return spec.family in PULSE_FAMILIES and mode != "grad"
+        # decompositions, and the pulse level measures noise-free forward
+        # simulation only.
+        return spec.family in PULSE_FAMILIES and mode not in ("grad", "noise")
 
     # ------------------------------------------------------------------
     # Setup
