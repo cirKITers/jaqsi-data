@@ -15,6 +15,13 @@ from benchmark.simulators.base import SimulatorBenchmark, Mode
 
 logger = logging.getLogger(__name__)
 
+# JAX 0.11 removed ``jax.core.is_concrete``, which PennyLane 0.45.1 still calls
+# on every traced tensor, so ``jax.jit`` and ``jax.grad`` through a QNode fail
+# without it.  Restores the removed helper; drop it once PennyLane no longer
+# calls it.
+if not hasattr(jax.core, "is_concrete"):
+    jax.core.is_concrete = lambda tracer: tracer.to_concrete_value() is not None
+
 
 def _apply(spec: CircuitSpec, inputs, weights) -> None:
     """Queue the operations of *spec* onto the active PennyLane tape."""
@@ -29,6 +36,8 @@ def _apply(spec: CircuitSpec, inputs, weights) -> None:
             qml.CRX(angle(op, inputs, weights), wires=list(op.wires))
         elif op.gate == "CNOT":
             qml.CNOT(wires=list(op.wires))
+        elif op.gate == "DEPOL":
+            qml.DepolarizingChannel(spec.depolarizing, wires=op.wires[0])
         else:
             raise ValueError(f"Unsupported gate: {op.gate!r}")
 
@@ -65,7 +74,9 @@ class PennylaneBenchmark(SimulatorBenchmark):
         self._spec = spec
         self._mode = mode
 
-        dev = qml.device(self.device_name, wires=spec.n_qubits)
+        # default.mixed is the only PennyLane device that accepts channels.
+        device_name = "default.mixed" if mode == "noise" else self.device_name
+        dev = qml.device(device_name, wires=spec.n_qubits)
 
         if mode == "grad":
             self._run_fn = self._make_grad_fn(spec, dev)
@@ -73,6 +84,7 @@ class PennylaneBenchmark(SimulatorBenchmark):
 
         return_map: dict[str, Callable] = {
             "density": lambda: qml.density_matrix(wires=range(spec.n_qubits)),
+            "noise": lambda: qml.density_matrix(wires=range(spec.n_qubits)),
             "state": lambda: qml.state(),
             "probs": lambda: qml.probs(wires=range(spec.n_qubits)),
             "expval": lambda: [
@@ -215,6 +227,11 @@ class PennylaneAdjointBenchmark(PennylaneBenchmark):
     diff_method = "adjoint"
     jax_forward = False
     jax_gradient = False
+
+    def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
+        # lightning.qubit accepts no noise channels, and the adjoint method
+        # needs unitary gates.
+        return mode != "noise"
 
 
 class PennylanePsrBenchmark(PennylaneBenchmark):
