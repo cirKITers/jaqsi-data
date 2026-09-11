@@ -14,19 +14,27 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
+# Enable 64-bit precision for JAX (matches the benchmark runner).  It has to
+# precede the adapter imports: jaqsi fixes the dtype of its constant gate
+# matrices when it is imported.
+jax.config.update("jax_enable_x64", True)
+
 from benchmark.circuits import build_spec
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from benchmark.simulators.jaqsi_pulse_sim import JaqsiPulseBenchmark
 from benchmark.simulators.pulse_model import (
+    PAULI_X,
+    PAULI_Y,
+    PAULI_Z,
+    Channel,
     apply_local,
+    apply_local_density,
     build_schedule,
+    depolarize,
     embed,
     make_coeff_fn,
     project_state,
 )
-
-# Enable 64-bit precision for JAX (matches the benchmark runner)
-jax.config.update("jax_enable_x64", True)
 
 # Both integrators run near their own accuracy floor; the residual is the
 # difference between two independent ODE solvers, not a modelling error.
@@ -114,6 +122,61 @@ class TestSchedule:
                 atol=1e-12,
                 err_msg=f"local application mismatch on wires {segment.wires}",
             )
+
+
+class TestNoise:
+    """The noise mode's channels and the density-matrix routes applying them."""
+
+    def test_channels_follow_their_gate(self):
+        """Each channel sits after the last segment of the gate before it.
+
+        A Hadamard spans 3 segments and a CRX 18, so on two qubits the
+        channels of H(0), H(1), CRX(0, 1) and CRX(1, 0) land at these indices.
+        """
+        clean = build_schedule(_spec(2))
+        noisy = build_schedule(build_spec("crx_ring", 2, 1, depolarizing=0.1))
+
+        positions = [i for i, item in enumerate(noisy) if isinstance(item, Channel)]
+        assert positions == [3, 7, 26, 27, 46, 47]
+        assert [(noisy[i].wire, noisy[i].p) for i in positions] == [
+            (0, 0.1), (1, 0.1), (0, 0.1), (1, 0.1), (1, 0.1), (0, 0.1)
+        ]
+        segments = [item for item in noisy if not isinstance(item, Channel)]
+        assert [(s.wires, s.duration) for s in segments] == [
+            (s.wires, s.duration) for s in clean
+        ]
+
+    @pytest.mark.parametrize("n_qubits", [2, 3])
+    def test_apply_local_density_matches_embedding(self, n_qubits):
+        rng = np.random.default_rng(n_qubits)
+        dim = 2**n_qubits
+        rho = rng.normal(size=(dim, dim)) + 1j * rng.normal(size=(dim, dim))
+
+        for segment in build_schedule(_spec(n_qubits)):
+            local = rng.normal(size=segment.op.shape) + 1j * rng.normal(
+                size=segment.op.shape
+            )
+            full = embed(local, segment.wires, n_qubits)
+            np.testing.assert_allclose(
+                apply_local_density(local, rho, segment.wires, n_qubits),
+                full @ rho @ full.conj().T,
+                atol=1e-12,
+                err_msg=f"local density application mismatch on wires {segment.wires}",
+            )
+
+    @pytest.mark.parametrize("wire", [0, 1, 2])
+    def test_depolarize_matches_the_kraus_sum(self, wire):
+        n_qubits, p = 3, 0.2
+        rng = np.random.default_rng(wire)
+        psi = rng.normal(size=8) + 1j * rng.normal(size=8)
+        rho = np.outer(psi, psi.conj()) / np.vdot(psi, psi)
+
+        paulis = [embed(P, (wire,), n_qubits) for P in (PAULI_X, PAULI_Y, PAULI_Z)]
+        expected = (1 - p) * rho + p / 3 * sum(P @ rho @ P for P in paulis)
+        result = depolarize(rho, p, wire, n_qubits)
+
+        np.testing.assert_allclose(result, expected, atol=1e-12)
+        assert np.trace(result) == pytest.approx(1.0)
 
 
 class TestTranscription:

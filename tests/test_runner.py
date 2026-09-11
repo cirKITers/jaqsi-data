@@ -6,8 +6,14 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
+
+# Enable 64-bit precision for JAX (matches the benchmark runner, which computes
+# every infidelity with it enabled).
+jax.config.update("jax_enable_x64", True)
 
 from benchmark.runner import (
     CSV_COLUMNS,
@@ -289,6 +295,42 @@ class TestInfidelity:
         reference = jnp.concatenate([zero, zero], axis=0)
         assert _infidelity(batch, reference, "state") == pytest.approx(
             float(jnp.sin(theta) ** 2)
+        )
+
+    def test_identical_mixed_states_are_zero(self):
+        rho = jnp.array([[[0.7, 0.1j], [-0.1j, 0.3]]])
+        assert _infidelity(rho, rho, "noise") == pytest.approx(0.0, abs=1e-12)
+
+    def test_noise_matches_analytic_mixed_fidelity(self):
+        """Commuting states reduce the Uhlmann fidelity to a classical one."""
+        rho = jnp.array([[[0.9, 0.0], [0.0, 0.1]]], dtype=complex)
+        sigma = jnp.array([[[0.6, 0.0], [0.0, 0.4]]], dtype=complex)
+        expected = 1.0 - (jnp.sqrt(0.9 * 0.6) + jnp.sqrt(0.1 * 0.4)) ** 2
+        assert _infidelity(sigma, rho, "noise") == pytest.approx(float(expected))
+
+    def test_noise_resolves_states_with_tiny_eigenvalues(self):
+        """Noisy states have eigenvalues far below one; rounding must not grow.
+
+        Taking roots of the eigenvalues of $\\sqrt{\\rho}\\sigma\\sqrt{\\rho}$
+        reports about $10^{-8}$ here for identical inputs.
+        """
+        rng = np.random.default_rng(0)
+        dim = 64
+        basis, _ = np.linalg.qr(
+            rng.normal(size=(dim, dim)) + 1j * rng.normal(size=(dim, dim))
+        )
+        spectrum = np.logspace(0, -12, dim)
+        rho = jnp.asarray(((basis * spectrum) @ basis.conj().T) / spectrum.sum())[None]
+        assert _infidelity(rho, rho, "noise") < 1e-13
+
+    def test_noise_reduces_to_density_for_pure_states(self):
+        theta = 0.3
+        rotated = self._density(
+            jnp.array([[jnp.cos(theta), jnp.sin(theta)]], dtype=complex)
+        )
+        zero = self._density(jnp.array([[1.0, 0.0]], dtype=complex))
+        assert _infidelity(rotated, zero, "noise") == pytest.approx(
+            _infidelity(rotated, zero, "density")
         )
 
     def test_every_pulse_simulator_has_a_counterpart(self):
