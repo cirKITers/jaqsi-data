@@ -26,8 +26,10 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
         # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
         # decompositions, so the other families have no pulse-level reference
         # the remaining pulse adapters could be compared against.  The pulse
-        # level measures noise-free forward simulation only.
-        return spec.family in PULSE_FAMILIES and mode not in ("grad", "noise")
+        # level measures forward simulation only.  The noise mode's channels
+        # need nothing pulse-specific: jaqsi applies them to the density
+        # matrix between the pulse gates, as it does at gate level.
+        return spec.family in PULSE_FAMILIES and mode != "grad"
 
     def setup(
         self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False

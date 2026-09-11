@@ -15,13 +15,6 @@ from benchmark.simulators.base import SimulatorBenchmark, Mode
 
 logger = logging.getLogger(__name__)
 
-# JAX 0.11 removed ``jax.core.is_concrete``, which PennyLane 0.45.1 still calls
-# on every traced tensor, so ``jax.jit`` and ``jax.grad`` through a QNode fail
-# without it.  Restores the removed helper; drop it once PennyLane no longer
-# calls it.
-if not hasattr(jax.core, "is_concrete"):
-    jax.core.is_concrete = lambda tracer: tracer.to_concrete_value() is not None
-
 
 def _apply(spec: CircuitSpec, inputs, weights) -> None:
     """Queue the operations of *spec* onto the active PennyLane tape."""

@@ -12,7 +12,7 @@ dominates the default path, at the cost of no longer exercising the pulse API.
 
 from __future__ import annotations
 
-from typing import Callable, List, Tuple
+from typing import Callable, List, Tuple, Union
 
 import numpy as np
 import jax
@@ -23,6 +23,7 @@ import pennylane as qml
 from benchmark.circuits import PULSE_FAMILIES, CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 from benchmark.simulators.pulse_model import (
+    Channel,
     Segment,
     build_schedule,
     drag_env,
@@ -79,9 +80,8 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
 
     def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
         # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
-        # decompositions, and the pulse level measures noise-free forward
-        # simulation only.
-        return spec.family in PULSE_FAMILIES and mode not in ("grad", "noise")
+        # decompositions, and the pulse level measures forward simulation only.
+        return spec.family in PULSE_FAMILIES and mode != "grad"
 
     # ------------------------------------------------------------------
     # Setup
@@ -94,10 +94,13 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
         self._mode = mode
 
         segments = build_schedule(spec)
-        dev = qml.device("default.qubit", wires=n_qubits)
+        # default.mixed is the only PennyLane device that accepts channels.
+        device_name = "default.mixed" if mode == "noise" else "default.qubit"
+        dev = qml.device(device_name, wires=n_qubits)
 
         return_map: dict[str, Callable] = {
             "density": lambda: qml.density_matrix(wires=range(n_qubits)),
+            "noise": lambda: qml.density_matrix(wires=range(n_qubits)),
             "state": lambda: qml.state(),
             "probs": lambda: qml.probs(wires=range(n_qubits)),
             "expval": lambda: [qml.expval(qml.PauliZ(i)) for i in range(n_qubits)],
@@ -115,6 +118,9 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
             @qml.qnode(dev, interface="jax", diff_method="backprop")
             def circuit(params):
                 for segment in segments:
+                    if isinstance(segment, Channel):
+                        qml.DepolarizingChannel(segment.p, wires=segment.wire)
+                        continue
                     qml.QubitUnitary(
                         _segment_unitary(segment, params), wires=segment.wires
                     )
@@ -125,9 +131,11 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
             # ParametrizedHamiltonians have to be built outside the QNode:
             # creating one inline queues its bare operator as an additional gate.
             evolutions: List[
-                Tuple[qml.pulse.ParametrizedHamiltonian, Callable, float]
+                Union[Tuple[qml.pulse.ParametrizedHamiltonian, Callable, float], Channel]
             ] = [
-                (_parametrized_hamiltonian(seg), seg.angle_fn, seg.duration)
+                seg
+                if isinstance(seg, Channel)
+                else (_parametrized_hamiltonian(seg), seg.angle_fn, seg.duration)
                 for seg in segments
             ]
 
@@ -135,7 +143,11 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
             # QNode on the JAX-traced path.  No gradient is taken here either.
             @qml.qnode(dev, interface="jax", diff_method="backprop")
             def circuit(params):
-                for hamiltonian, angle_fn, duration in evolutions:
+                for evolution in evolutions:
+                    if isinstance(evolution, Channel):
+                        qml.DepolarizingChannel(evolution.p, wires=evolution.wire)
+                        continue
+                    hamiltonian, angle_fn, duration = evolution
                     qml.evolve(hamiltonian)(
                         [angle_fn(params)], t=duration, atol=_ATOL, rtol=_RTOL
                     )
