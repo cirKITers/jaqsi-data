@@ -49,6 +49,7 @@ modes:
   # - state
   - density
   # - probs
+  - noise
 
 # Which simulators to run (subset of: jaqsi_pulse, pennylane_pulse,
 # qutip_pulse, dynamiqs_pulse)

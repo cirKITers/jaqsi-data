@@ -30,7 +30,7 @@ circuit:
 # Qubit sweep range (inclusive)
 qubits:
   min: 2
-  max: 10
+  max: 14
 
 # Execution settings
 execution:
@@ -39,13 +39,21 @@ execution:
 
 # Which measurement modes to benchmark.  `grad` is not a measurement but the
 # gradient of the summed Pauli-Z expectation with respect to the trainable
-# parameters, timed and cross-validated like the others.
+# parameters, timed and cross-validated like the others.  `noise` returns the
+# density matrix of the circuit with a depolarizing channel after every gate,
+# which makes every simulator evolve the density matrix, jaqsi included, where
+# `density` is formed from the state vector.
 modes:
   - expval
   # - state
   - density
   - grad
   # - probs
+  - noise
+
+# Probability of the single-qubit depolarizing channel `noise` applies after
+# every gate, on each wire the gate acts on.  Timings do not depend on it.
+depolarizing: 0.01
 
 # Which simulators to run.  The pennylane entries differ only in how they
 # differentiate: backpropagation on default.qubit and the adjoint method on
