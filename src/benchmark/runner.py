@@ -73,7 +73,7 @@ GATE_COUNTERPART: Dict[str, str] = {
 }
 
 # Modes whose output defines a state or a distribution, and hence a fidelity.
-FIDELITY_MODES = frozenset({"state", "density", "probs"})
+FIDELITY_MODES = frozenset({"state", "density", "probs", "noise"})
 
 # Gate-level PennyLane adapters batch through PennyLane's own parameter
 # broadcasting, which returns expval as ``(n_obs, batch)`` where every other
@@ -84,6 +84,13 @@ PENNYLANE_BROADCAST = frozenset({"pennylane", "pennylane_adjoint"})
 def _level(simulator: str) -> str:
     """Return the simulation level (``gate`` or ``pulse``) of *simulator*."""
     return "pulse" if simulator.endswith("_pulse") else "gate"
+
+
+def _sqrtm_psd(a: jnp.ndarray) -> jnp.ndarray:
+    """Return the principal square root of the Hermitian PSD matrices *a*."""
+    w, v = jnp.linalg.eigh(a)
+    root = jnp.sqrt(jnp.clip(w, 0.0))[..., None, :]
+    return (v * root) @ jnp.conj(jnp.swapaxes(v, -1, -2))
 
 
 def _infidelity(pulse_output, gate_output, mode: str) -> Optional[float]:
@@ -107,6 +114,20 @@ def _infidelity(pulse_output, gate_output, mode: str) -> Optional[float]:
         # The schedule is unitary, so both operands are pure and the Uhlmann
         # fidelity reduces to $\\mathrm{tr}(\\rho\\sigma)$.
         overlap = jnp.real(jnp.einsum("...ij,...ji->...", gate, pulse))
+        norms = jnp.real(
+            jnp.trace(gate, axis1=-2, axis2=-1) * jnp.trace(pulse, axis1=-2, axis2=-1)
+        )
+    elif mode == "noise":
+        # The channels make both operands mixed, so this takes the full
+        # Uhlmann fidelity $\\lVert\\sqrt{\\rho}\\sqrt{\\sigma}\\rVert_1^2$, which
+        # the ``density`` case above is the pure-state limit of.  It sums the
+        # singular values of $\\sqrt{\\rho}\\sqrt{\\sigma}$ rather than the roots
+        # of the eigenvalues of $\\sqrt{\\rho}\\sigma\\sqrt{\\rho}$: the noisy
+        # states have eigenvalues down to $10^{-11}$, where those roots turn
+        # rounding errors into an infidelity of $10^{-8}$ for identical inputs
+        # at eight qubits.
+        product = _sqrtm_psd(gate) @ _sqrtm_psd(pulse)
+        overlap = jnp.sum(jnp.linalg.svd(product, compute_uv=False), axis=-1) ** 2
         norms = jnp.real(
             jnp.trace(gate, axis1=-2, axis2=-1) * jnp.trace(pulse, axis1=-2, axis2=-1)
         )
