@@ -392,7 +392,7 @@ wheels = [
 [[package]]
 name = "dynamiqs"
 version = "0.3.6"
-source = { git = "https://github.com/dynamiqs/dynamiqs?rev=8119714466d310621b1752f6874725f45803371c#8119714466d310621b1752f6874725f45803371c" }
+source = { git = "https://github.com/dynamiqs/dynamiqs?rev=991fd45a9d46c1220095633bad453b005276e9f7#991fd45a9d46c1220095633bad453b005276e9f7" }
 dependencies = [
     { name = "cmap" },
     { name = "diffrax" },
@@ -629,7 +629,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dynamiqs", git = "https://github.com/dynamiqs/dynamiqs?rev=8119714466d310621b1752f6874725f45803371c" },
+    { name = "dynamiqs", git = "https://github.com/dynamiqs/dynamiqs?rev=991fd45a9d46c1220095633bad453b005276e9f7" },
     { name = "jaqsi", git = "https://github.com/cirKITers/jaqsi?rev=8dbdbaf174b06a61d3668eab7b76b6d0716c3708" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "omegaconf", specifier = ">=2.3" },
