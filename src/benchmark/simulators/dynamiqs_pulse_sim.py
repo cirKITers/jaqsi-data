@@ -22,8 +22,11 @@ import dynamiqs as dq
 from benchmark.circuits import PULSE_FAMILIES, CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode
 from benchmark.simulators.pulse_model import (
+    Channel,
     apply_local,
+    apply_local_density,
     build_schedule,
+    depolarize,
     embed,
     make_coeff_fn,
     project_state,
@@ -63,15 +66,21 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
 
         # Build every segment operator once, outside the timing loop.  The
         # tensor order matches the big-endian convention of the pulse model, so
-        # no basis permutation is needed.
+        # no basis permutation is needed.  Channels carry no operator; the
+        # density-matrix solvers apply them.
         segments = build_schedule(spec)
         if optimal_config:
-            ops = [dq.asqarray(jnp.asarray(seg.op)) for seg in segments]
+            ops = [
+                None if isinstance(seg, Channel) else dq.asqarray(jnp.asarray(seg.op))
+                for seg in segments
+            ]
         else:
             # Every embedded operator has at most two non-zero diagonals, hence
             # the dia layout.
             ops = [
-                dq.asqarray(
+                None
+                if isinstance(seg, Channel)
+                else dq.asqarray(
                     jnp.asarray(embed(seg.op, seg.wires, n_qubits, xp=jnp)),
                     dims=(2,) * n_qubits,
                     layout=dq.dia,
@@ -114,9 +123,58 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
                 )
             return project_state(state, mode, n_qubits, jnp)
 
+        def solve_density(params: jnp.ndarray) -> jnp.ndarray:
+            """Evolve the density matrix of $\\lvert 0 \\dots 0 \\rangle$ with ``mesolve``.
+
+            No jump operators are passed: the noise is the schedule's discrete
+            channels, applied between the solves.  Without jump operators
+            dynamiqs' default form adds their empty sum as a scalar and fails,
+            so the equation is solved in vectorized form.  That form returns
+            its states without their qubit dims, so the state is carried as a
+            plain array and given its dims again for every solve.
+            """
+            rho = dq.todm(psi0).to_jax()
+            for op, seg in zip(ops, segments):
+                if isinstance(seg, Channel):
+                    rho = depolarize(rho, seg.p, seg.wire, n_qubits, jnp)
+                    continue
+                rho = dq.mesolve(
+                    hamiltonian(op, seg, params),
+                    [],
+                    dq.asqarray(rho, dims=(2,) * n_qubits),
+                    jnp.array([0.0, seg.duration]),
+                    method=_METHOD,
+                    progress_meter=False,
+                    vectorized=True,
+                ).states[-1].to_jax()
+            return rho
+
+        def solve_density_local(params: jnp.ndarray) -> jnp.ndarray:
+            """Evolve the density matrix one local propagator at a time."""
+            rho = dq.todm(psi0).to_jax()
+            for op, seg in zip(ops, segments):
+                if isinstance(seg, Channel):
+                    rho = depolarize(rho, seg.p, seg.wire, n_qubits, jnp)
+                    continue
+                propagator = dq.sepropagator(
+                    hamiltonian(op, seg, params),
+                    jnp.array([0.0, seg.duration]),
+                    method=_METHOD,
+                    progress_meter=False,
+                ).propagators[-1]
+                rho = apply_local_density(
+                    propagator.to_jax(), rho, seg.wires, n_qubits, jnp
+                )
+            return rho
+
+        if mode == "noise":
+            solver = solve_density_local if optimal_config else solve_density
+        else:
+            solver = solve_local if optimal_config else solve
+
         # Compile the whole schedule once and vectorize over the batch, mirroring
         # how jaqsi executes its pulse circuits.
-        self._run_fn = jax.jit(jax.vmap(solve_local if optimal_config else solve))
+        self._run_fn = jax.jit(jax.vmap(solver))
 
     # ------------------------------------------------------------------
     # Execution helpers

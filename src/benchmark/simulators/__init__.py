@@ -7,6 +7,15 @@ optional backends (e.g. ``jaqsi``, ``qiskit``) are not installed.
 
 import importlib
 
+import jax
+
+# JAX 0.11 removed ``jax.core.is_concrete``, which PennyLane 0.45.1 still calls
+# on every traced tensor, so ``jax.jit`` and ``jax.grad`` through a QNode fail
+# without it.  Restored here, where both PennyLane adapters pass on import;
+# drop it once PennyLane no longer calls it.
+if not hasattr(jax.core, "is_concrete"):
+    jax.core.is_concrete = lambda tracer: tracer.to_concrete_value() is not None
+
 # Maps the public adapter name to the submodule that defines it.
 _MODULES = {
     "JaqsiBenchmark": "jaqsi_sim",

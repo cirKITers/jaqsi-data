@@ -19,6 +19,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+# Enable 64-bit precision for JAX (matches the benchmark runner).  It has to
+# precede the adapter imports: jaqsi fixes the dtype of its constant gate
+# matrices when it is imported.
+jax.config.update("jax_enable_x64", True)
+
 from benchmark.circuits import build_spec
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from benchmark.simulators.pennylane_sim import (
@@ -29,9 +34,6 @@ from benchmark.simulators.pennylane_sim import (
 from benchmark.simulators.qiskit_sim import QiskitBenchmark
 from benchmark.simulators.qibo_sim import QiboBenchmark
 from benchmark.simulators.qulacs_sim import QulacsBenchmark
-
-# Enable 64-bit precision for JAX (matches the benchmark runner)
-jax.config.update("jax_enable_x64", True)
 
 PRECISION = 1e-8
 
@@ -256,3 +258,51 @@ class TestGradientCrossValidation:
                 )
 
         np.testing.assert_allclose(analytic, np.array(numeric), atol=1e-6)
+
+
+# ------------------------------------------------------------------
+# Noise cross-validation
+# ------------------------------------------------------------------
+
+# Every adapter that implements the noise mode.  pennylane_adjoint is absent:
+# lightning.qubit accepts no noise channels.
+_NOISE_SIMULATORS = [
+    pytest.param(JaqsiBenchmark, id="jaqsi"),
+    pytest.param(PennylaneBenchmark, id="pennylane"),
+    pytest.param(QiskitBenchmark, id="qiskit"),
+    pytest.param(QiboBenchmark, id="qibo"),
+    pytest.param(QulacsBenchmark, id="qulacs"),
+]
+
+# Large enough that a channel with the wrong parameter convention, or one an
+# optimizer dropped, moves the density matrix far beyond PRECISION.
+_DEPOLARIZING = 0.05
+
+
+class TestNoiseCrossValidation:
+    """The noisy density matrix must agree with PennyLane's default.mixed."""
+
+    @pytest.mark.parametrize("family", _FAMILIES)
+    @pytest.mark.parametrize("sim_cls", _NOISE_SIMULATORS)
+    @pytest.mark.parametrize("optimal_config", [False, True])
+    def test_noise_matches(self, pennylane, sim_cls, optimal_config, family):
+        spec = build_spec(family, 3, 2, depolarizing=_DEPOLARIZING)
+        other = sim_cls()
+        other.setup(spec, "noise", optimal_config=optimal_config)
+        ot = other.run(*_params(spec, batch_size=2))
+        pl = _run(pennylane, spec, "noise", batch_size=2)
+        np.testing.assert_allclose(
+            ot, pl, atol=PRECISION,
+            err_msg=f"noise mismatch: {other.name} vs pennylane, "
+            f"optimal_config={optimal_config}",
+        )
+
+    def test_jaqsi_evolves_a_mixed_state(self):
+        """The channels must reach jaqsi, or it takes the state-vector route."""
+        spec = build_spec("hea", 3, 2, depolarizing=_DEPOLARIZING)
+        rho = np.asarray(_run(JaqsiBenchmark(), spec, "noise"))[0]
+        assert np.real(np.trace(rho @ rho)) < 0.99
+
+    def test_adjoint_skips_noise(self):
+        spec = build_spec("hea", 2, 1, depolarizing=_DEPOLARIZING)
+        assert not PennylaneAdjointBenchmark().supports(spec, "noise")

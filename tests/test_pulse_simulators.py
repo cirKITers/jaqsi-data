@@ -16,15 +16,18 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+# Enable 64-bit precision for JAX (matches the benchmark runner).  It has to
+# precede the adapter imports: jaqsi fixes the dtype of its constant gate
+# matrices when it is imported.
+jax.config.update("jax_enable_x64", True)
+
 from benchmark.circuits import build_spec
-from benchmark.runner import REFERENCE_BY_LEVEL, SIMULATOR_REGISTRY, _level
+from benchmark.runner import REFERENCE_BY_LEVEL, SIMULATOR_REGISTRY, _infidelity, _level
 from benchmark.simulators.dynamiqs_pulse_sim import DynamiqsPulseBenchmark
 from benchmark.simulators.jaqsi_pulse_sim import JaqsiPulseBenchmark
+from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from benchmark.simulators.pennylane_pulse_sim import PennylanePulseBenchmark
 from benchmark.simulators.qutip_pulse_sim import QutipPulseBenchmark
-
-# Enable 64-bit precision for JAX (matches the benchmark runner)
-jax.config.update("jax_enable_x64", True)
 
 # Tighter than ``precision`` in configs/pulse.yaml, which has to cover the
 # solver error accumulated over a full sweep; these tests run at two qubits,
@@ -136,6 +139,52 @@ class TestPulseOptimalConfigEquivalence:
         optimal_out = np.asarray(optimal_sim.run(inputs, WEIGHTS))
 
         np.testing.assert_allclose(default_out, optimal_out, atol=tolerance)
+
+
+# ------------------------------------------------------------------
+# Noise
+# ------------------------------------------------------------------
+
+# Large enough that a channel with the wrong convention, or one at the wrong
+# point of the schedule, moves the density matrix far beyond PRECISION.
+NOISY_SPEC = build_spec("crx_ring", N_QUBITS, 1, depolarizing=0.05)
+
+
+@pytest.fixture(scope="module")
+def noisy_reference():
+    """Return the jaqsi_pulse noise result, computed once."""
+    sim = JaqsiPulseBenchmark()
+    sim.setup(NOISY_SPEC, "noise")
+    return np.asarray(sim.run(_inputs(), WEIGHTS))
+
+
+class TestPulseNoise:
+    """Every pulse simulator evolves the same noisy density matrix."""
+
+    @pytest.mark.parametrize("optimal", [False, True], ids=["default", "optimal"])
+    @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
+    def test_matches_reference(self, noisy_reference, sim_cls, optimal):
+        sim = sim_cls()
+        assert sim.supports(NOISY_SPEC, "noise")
+        sim.setup(NOISY_SPEC, "noise", optimal_config=optimal)
+        result = np.asarray(sim.run(_inputs(), WEIGHTS))
+
+        assert result.shape == noisy_reference.shape
+        np.testing.assert_allclose(
+            result, noisy_reference, atol=PRECISION,
+            err_msg=f"noise mismatch: {sim.name} vs jaqsi_pulse",
+        )
+
+    def test_reference_is_mixed(self, noisy_reference):
+        purity = np.real(np.trace(noisy_reference[0] @ noisy_reference[0]))
+        assert purity < 0.99
+
+    def test_matches_the_gate_level(self, noisy_reference):
+        """The channels sit where the gate-level noise mode puts them."""
+        gate = JaqsiBenchmark()
+        gate.setup(NOISY_SPEC, "noise")
+        expected = gate.run(_inputs(), WEIGHTS)
+        assert _infidelity(noisy_reference, expected, "noise") < 1e-6
 
 
 # ------------------------------------------------------------------

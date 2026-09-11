@@ -7,7 +7,7 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 
-from jaqsi import Gates, PauliZ, Script
+from jaqsi import DepolarizingChannel, Gates, PauliZ, Script
 
 from benchmark.circuits import CircuitSpec, angle
 from benchmark.simulators.base import SimulatorBenchmark, Mode
@@ -34,6 +34,10 @@ def build_circuit(spec: CircuitSpec, *, pulse: bool = False) -> Callable:
                 )
             elif op.gate == "CNOT":
                 Gates.CX(wires=list(op.wires), pulse=pulse)
+            elif op.gate == "DEPOL":
+                # A channel on the tape switches jaqsi to density-matrix
+                # simulation.
+                DepolarizingChannel(spec.depolarizing, wires=op.wires[0])
             else:
                 raise ValueError(f"Unsupported gate: {op.gate!r}")
 
@@ -73,10 +77,13 @@ class JaqsiBenchmark(SimulatorBenchmark):
         obs = [PauliZ(wires=i, record=False) for i in range(spec.n_qubits)]
 
         if mode != "grad":
+            # The noise mode measures the density matrix; its channels are
+            # already part of the circuit.
+            measurement = "density" if mode == "noise" else mode
 
             def _forward(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
                 return script.execute(
-                    type=mode,
+                    type=measurement,
                     obs=obs,
                     args=(inputs, weights),
                     in_axes=(0, None),

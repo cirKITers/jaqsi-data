@@ -23,7 +23,7 @@ backends.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -84,6 +84,18 @@ class Segment:
     duration: float
     angle_fn: Callable[[np.ndarray], float]
     drag: Optional[Tuple[float, float, float]] = None
+
+
+@dataclass(frozen=True)
+class Channel:
+    """Depolarizing channel of probability ``p`` on ``wire``.
+
+    Sits between the segments of two gates, where the ``noise`` mode's circuit
+    spec places it, which is also where jaqsi's pulse gates apply their noise.
+    """
+
+    wire: int
+    p: float
 
 
 def drag_env(t, drag: Tuple[float, float, float], xp=np):
@@ -153,6 +165,45 @@ def apply_local(u, psi, wires: Tuple[int, ...], n_qubits: int, xp=np):
     order = list(wires) + rest
     perm = [order.index(q) for q in range(n_qubits)]
     return contracted.transpose(perm).reshape(2**n_qubits)
+
+
+def _contract_axes(op, tensor, axes: List[int], xp=np):
+    """Contract the $k$-qubit operator tensor *op* into *axes* of *tensor*."""
+    k = len(axes)
+    contracted = xp.tensordot(op, tensor, axes=(list(range(k, 2 * k)), axes))
+
+    # tensordot leaves the contracted axes in front, followed by the others.
+    rest = [a for a in range(tensor.ndim) if a not in axes]
+    order = axes + rest
+    return contracted.transpose([order.index(a) for a in range(tensor.ndim)])
+
+
+def apply_local_density(u, rho, wires: Tuple[int, ...], n_qubits: int, xp=np):
+    """Return $U \\rho U^\\dagger$ for the local unitary *u* on *wires*.
+
+    The density-matrix counterpart of :func:`apply_local`: *u* acts on the ket
+    axes of *rho* and its conjugate on the bra axes, under the same big-endian
+    convention.
+    """
+    k = len(wires)
+    u = u.reshape([2] * (2 * k))
+    tensor = rho.reshape([2] * (2 * n_qubits))
+    tensor = _contract_axes(u, tensor, list(wires), xp)
+    tensor = _contract_axes(xp.conj(u), tensor, [w + n_qubits for w in wires], xp)
+    return tensor.reshape(2**n_qubits, 2**n_qubits)
+
+
+def depolarize(rho, p: float, wire: int, n_qubits: int, xp=np):
+    """Apply the depolarizing channel of probability *p* on *wire* to *rho*.
+
+    $\\rho \\mapsto (1 - p)\\rho + \\frac{p}{3}(X\\rho X + Y\\rho Y + Z\\rho Z)$,
+    the Kraus form jaqsi, PennyLane and Qulacs use.
+    """
+    flipped = sum(
+        apply_local_density(xp.asarray(pauli), rho, (wire,), n_qubits, xp)
+        for pauli in (PAULI_X, PAULI_Y, PAULI_Z)
+    )
+    return (1 - p) * rho + (p / 3) * flipped
 
 
 def _pauli_z_expvals(probs, n_qubits: int, xp=np):
@@ -256,20 +307,24 @@ def _crx(control: int, target: int, index: int) -> List[Segment]:
     ]
 
 
-def build_schedule(spec: CircuitSpec) -> List[Segment]:
+def build_schedule(spec: CircuitSpec) -> List[Union[Segment, Channel]]:
     """Return the pulse schedule of *spec* in execution order.
 
     Only the Hadamard and $CRX$ decompositions are transcribed, so the
     ``crx_ring`` family is the only one with a pulse-level counterpart: its
     Hadamard layer contributes $3 n$ segments and every $CRX$ ring another
-    $18 n$, i.e. $21 n$ at a depth of one.
+    $18 n$, i.e. $21 n$ at a depth of one.  A noisy spec adds a
+    :class:`Channel` wherever it holds a ``DEPOL`` op, after the segments of
+    the gate before it.
     """
-    segments: List[Segment] = []
+    segments: List[Union[Segment, Channel]] = []
     for op in spec.ops:
         if op.gate == "H":
             segments.extend(_hadamard(op.wires[0]))
         elif op.gate == "CRX":
             segments.extend(_crx(op.wires[0], op.wires[1], op.index))
+        elif op.gate == "DEPOL":
+            segments.append(Channel(op.wires[0], spec.depolarizing))
         else:
             raise ValueError(f"Gate {op.gate!r} has no pulse transcription")
     return segments

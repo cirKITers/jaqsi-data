@@ -60,6 +60,12 @@ class QiboBenchmark(SimulatorBenchmark):
                 c.add(gates.CRX(op.wires[0], op.wires[1], theta=0.0))
             elif op.gate == "CNOT":
                 c.add(gates.CNOT(op.wires[0], op.wires[1]))
+            elif op.gate == "DEPOL":
+                # Qibo's $\lambda$ is the probability $p$ of the other
+                # frameworks at $\lambda = 4p/3$.
+                c.add(
+                    gates.DepolarizingChannel((op.wires[0],), 4 * spec.depolarizing / 3)
+                )
             else:
                 raise ValueError(f"Unsupported gate: {op.gate!r}")
         return c
@@ -89,8 +95,9 @@ class QiboBenchmark(SimulatorBenchmark):
         #
         # Picking one backend for everything costs an order of magnitude on
         # half the sweep either way.  The qiskit adapter selects its Aer method
-        # by mode for the same reason.
-        if optimal_config and mode == "density":
+        # by mode for the same reason.  The noise mode evolves the same density
+        # matrix, so it follows ``density``.
+        if optimal_config and mode in ("density", "noise"):
             set_backend("qibojit", platform="numba")
             # qibojit's constructor pins numba to one thread per available
             # core, ignoring the environment, so it is the one backend that has
@@ -110,7 +117,7 @@ class QiboBenchmark(SimulatorBenchmark):
         self._mode = mode
         self._param_ops = tuple(op for op in spec.ops if op.source is not None)
 
-        if mode == "density":
+        if mode in ("density", "noise"):
             self._circuit_dm = self._build_circuit(spec, density_matrix=True)
             self._circuit = None
         else:
@@ -174,7 +181,7 @@ class QiboBenchmark(SimulatorBenchmark):
                 return jnp.array(np.array(results))
             return _run_expval
 
-        elif mode == "density":
+        elif mode in ("density", "noise"):
             def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
                 w = np.asarray(weights)
                 results = []

@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from benchmark.circuits import FAMILIES, GATES, PULSE_FAMILIES, angle, build_spec
+from benchmark.circuits import FAMILIES, GATES, PULSE_FAMILIES, Op, angle, build_spec
 
 _FAMILIES = sorted(FAMILIES)
 
@@ -154,6 +154,29 @@ class TestAngleLookup:
             angle(encoding, batch, weights),
             np.full(3, encoding.index),
         )
+
+
+class TestDepolarizing:
+    """The noise mode's channels are ops in the spec, like the gates."""
+
+    @pytest.mark.parametrize("family", _FAMILIES)
+    def test_noise_free_by_default(self, family):
+        spec = build_spec(family, 3, 2)
+        assert spec.depolarizing == 0.0
+        assert all(op.gate != "DEPOL" for op in spec.ops)
+
+    @pytest.mark.parametrize("family", _FAMILIES)
+    def test_channel_follows_every_gate_on_each_wire(self, family):
+        clean = build_spec(family, 3, 2)
+        noisy = build_spec(family, 3, 2, depolarizing=0.1)
+        assert noisy.depolarizing == 0.1
+
+        ops = iter(noisy.ops)
+        for gate in clean.ops:
+            assert next(ops) == gate
+            for w in gate.wires:
+                assert next(ops) == Op("DEPOL", (w,))
+        assert next(ops, None) is None
 
 
 class TestPulseFamilies:

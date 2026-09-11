@@ -19,7 +19,11 @@ from benchmark.threads import num_threads
 # $\sum_i \langle Z_i \rangle$, summed over the batch, with respect to the
 # circuit's trainable parameter vector.  It shares the runner's mode loop
 # because it is timed and cross-validated exactly like a measurement.
-Mode = Literal["probs", "expval", "state", "density", "grad"]
+#
+# ``noise`` returns the density matrix like ``density``, but of the circuit
+# with a depolarizing channel after every gate.  The state it evolves is mixed,
+# so no simulator can form the result from a state vector.
+Mode = Literal["probs", "expval", "state", "density", "grad", "noise"]
 
 
 def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
