@@ -1,7 +1,7 @@
 # Dependencies only.  docker-compose.yml bind-mounts the repository at /app, so
 # the source comes from the checkout on the executing machine and is reached
 # through PYTHONPATH.  The venv lives at /opt/venv, which that mount would hide.
-FROM python:3.11-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.21 /uv /usr/local/bin/uv
 
