@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import importlib
 import logging
 import os
 import subprocess
+from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 import jax
 import jax.numpy as jnp
 
 from benchmark.circuits import CircuitSpec, build_spec
 from benchmark.config import BenchmarkConfig
+from benchmark.provenance import record_provenance
 from benchmark.simulators.base import BenchmarkResult, Mode, SimulatorBenchmark
 
 logger = logging.getLogger(__name__)
@@ -143,7 +146,7 @@ def _infidelity(pulse_output, gate_output, mode: str) -> Optional[float]:
     return max(0.0, float(jnp.max(1.0 - overlap / norms)))
 
 
-def _gate_output(
+def _simulator_output(
     name: str,
     spec: CircuitSpec,
     mode: Mode,
@@ -151,7 +154,7 @@ def _gate_output(
     weights: jnp.ndarray,
     optimal_config: bool,
 ) -> jnp.ndarray:
-    """Execute the gate-level simulator *name* once, outside the timing loop."""
+    """Execute simulator *name* once, outside the timing loop."""
     module_name, class_name = SIMULATOR_REGISTRY[name]
     module = importlib.import_module(f"benchmark.simulators.{module_name}")
     sim = getattr(module, class_name)()
@@ -279,6 +282,12 @@ def _validate_results(
     if ref.mode == "expval" and other.simulator in PENNYLANE_BROADCAST:
         oth_arr = oth_arr.T
 
+    if ref_arr.shape != oth_arr.shape:
+        raise RuntimeError(
+            f"Results mismatch ({ref.simulator} vs {other.simulator}): "
+            f"shapes {ref_arr.shape} and {oth_arr.shape} differ"
+        )
+
     # rtol is disabled so that *precision* is the whole tolerance rather than
     # being widened by numpy's default relative term.
     if not jnp.allclose(ref_arr, oth_arr, atol=precision, rtol=0.0):
@@ -304,15 +313,15 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     jax.config.update("jax_enable_x64", True)
 
     csv_file = _csv_path(cfg)
-    _ensure_csv(csv_file)
     completed = _load_completed(csv_file)
+    record_provenance(csv_file, cfg, has_results=bool(completed))
+    _ensure_csv(csv_file)
     if completed:
         logger.info(
             f"Resuming run {cfg.output.identifier}: "
             f"{len(completed)} result(s) already recorded."
         )
 
-    rng = jax.random.PRNGKey(cfg.seed)
     qubit_sizes = list(range(cfg.qubits.min, cfg.qubits.max + 1))
 
     # Late imports to avoid hard dependency on optional backends at module level
@@ -322,10 +331,12 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
         module = importlib.import_module(f"benchmark.simulators.{module_name}")
         simulators.append(getattr(module, class_name)())
 
+    # Compute selected references first, independently of the requested order.
+    simulators.sort(key=lambda sim: sim.name not in REFERENCE_BY_LEVEL.values())
+
     for n_layers in cfg.circuit.layers:
         for n_qubits in qubit_sizes:
-            for mode in cfg.modes:
-                mode: Mode  # type: ignore[no-redef]
+            for mode in cast(List[Mode], cfg.modes):
 
                 # Only the noise mode carries depolarizing channels.
                 spec = build_spec(
@@ -371,7 +382,12 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                 # Generate random parameters, shared across simulators for
                 # fairness.  Inputs carry the batch axis; weights are shared
                 # across the batch and redrawn every iteration.
-                rng, input_key, weight_key = jax.random.split(rng, 3)
+                # A stable key per case makes skips, sweep order and added modes
+                # irrelevant to the parameters used by an existing case.
+                case = f"{spec.family}:{n_layers}:{n_qubits}:{mode}".encode()
+                case_id = int.from_bytes(hashlib.sha256(case).digest()[:4], "big")
+                rng = jax.random.fold_in(jax.random.PRNGKey(cfg.seed), case_id)
+                input_key, weight_key = jax.random.split(rng)
                 all_inputs = jax.random.uniform(
                     input_key,
                     shape=(
@@ -389,7 +405,7 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                     maxval=jnp.pi,
                 )
 
-                sim_results: Dict[str, BenchmarkResult] = {}
+                references: Dict[str, BenchmarkResult] = {}
 
                 # The recorded output is the one from the last timed iteration,
                 # so the gate-level comparison has to use the same parameters.
@@ -439,7 +455,7 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                     if _level(sim.name) == "pulse" and mode in FIDELITY_MODES:
                         gate_name = GATE_COUNTERPART[sim.name]
                         if gate_name not in gate_outputs:
-                            gate_outputs[gate_name] = _gate_output(
+                            gate_outputs[gate_name] = _simulator_output(
                                 gate_name,
                                 spec,
                                 mode,
@@ -454,23 +470,34 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
                             f"  infidelity vs {gate_name}: {result.infidelity:.3e}"
                         )
 
+                    ref_name = REFERENCE_BY_LEVEL[_level(sim.name)]
+                    if sim.name == ref_name:
+                        references[ref_name] = result
+                    else:
+                        if ref_name not in references:
+                            # A completed (or unselected) reference still needs
+                            # to validate new rows on the same final inputs.
+                            references[ref_name] = replace(
+                                result,
+                                simulator=ref_name,
+                                raw_output=_simulator_output(
+                                    ref_name,
+                                    spec,
+                                    mode,
+                                    last_inputs,
+                                    last_weights,
+                                    cfg.optimal_config,
+                                ),
+                            )
+                        _validate_results(
+                            references[ref_name],
+                            result,
+                            GRAD_PRECISION if mode == "grad" else cfg.precision,
+                        )
+
+                    # Only successful results become resumable.
                     _append_row(csv_file, result)
                     completed.add(key)
-                    sim_results[sim.name] = result
-
-                # Cross-validate each simulation level against its jaqsi reference
-                precision = GRAD_PRECISION if mode == "grad" else cfg.precision
-                for level, ref_name in REFERENCE_BY_LEVEL.items():
-                    if ref_name not in sim_results:
-                        continue
-                    for other_name, other_res in sim_results.items():
-                        if other_name == ref_name or _level(other_name) != level:
-                            continue
-                        _validate_results(
-                            sim_results[ref_name],
-                            other_res,
-                            precision,
-                        )
 
     logger.info(f"All benchmarks complete. Results in {csv_file}")
     return csv_file
