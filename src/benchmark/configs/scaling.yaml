@@ -1,0 +1,20 @@
+# Forward and gradient scaling without allocating density matrices.
+seed: 1000
+warmup: true
+precision: 1.0e-8
+optimal_config: true
+threads: 1
+circuit:
+  family: hea
+  layers: [1, 4]
+qubits:
+  min: 8
+  max: 20
+execution:
+  n_iters: 50
+  batch_size: 10
+modes: [expval, grad]
+simulators: [jaqsi, pennylane, pennylane_adjoint]
+output:
+  dir: results
+  identifier: null
