@@ -22,12 +22,16 @@ REFERENCE_SIMULATOR = "jaqsi"
 REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 
 # Measurement modes to include in the generated figures, per simulation level.
-# A single mode keeps the paper figures one column wide.  Set to None to plot
+# Up to four modes keep the paper figures one column wide.  Set to None to plot
 # every mode present in the results file.  ``grad`` is included so the gradient
 # workload is plotted alongside the forward ones; a pulse-level file has no
 # such rows and simply drops the panel.  ``noise`` sits next to ``density``,
 # whose output it shares without the state-vector shortcut.
 PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "density", "noise", "grad")
+
+# Former simulator names found in older result files, mapped to their current
+# name so that old and new results share one label and colour.
+LEGACY_SIMULATOR_NAMES: Dict[str, str] = {"pennylane_adjoint": "pennylane_lightning"}
 
 
 # ------------------------------------------------------------------
@@ -126,7 +130,7 @@ def load_results(
             key = (int(row["n_qubits"]), row["mode"])
             if key not in raw:
                 raw[key] = {}
-            sim_name = row["simulator"]
+            sim_name = LEGACY_SIMULATOR_NAMES.get(row["simulator"], row["simulator"])
             simulators_by_mode.setdefault(row["mode"], set()).add(sim_name)
             raw_inf = row.get("infidelity", "")
             raw[key][sim_name] = {
@@ -208,10 +212,17 @@ COLUMNWIDTH_IN = 3.487
 MACHINE_EPS = 2.220446049250313e-16
 
 
+def _grid(n_modes: int) -> Tuple[int, int]:
+    """Panel grid ``(rows, cols)``; four panels wrap into 2x2 to stay one column wide."""
+    return (2, 2) if n_modes == 4 else (1, n_modes)
+
+
 def _figsize(n_modes: int) -> Tuple[float, float]:
-    """Figure size for *n_modes* side-by-side panels."""
-    width = COLUMNWIDTH_IN if n_modes <= 2 else TEXTWIDTH_IN
-    return width, max(1.9, width / n_modes * 0.8)
+    """Figure size for *n_modes* panels laid out by :func:`_grid`."""
+    rows, cols = _grid(n_modes)
+    width = COLUMNWIDTH_IN if cols <= 3 else TEXTWIDTH_IN
+    # A second row adds one panel height; legend and x label are shared.
+    return width, max(1.9, width / cols * 0.8) + 1.5 * (rows - 1)
 
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
@@ -242,8 +253,8 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
     All subplots share the same simulators, so a single horizontal legend on
     top is cleaner than per-axis legends overlapping the data.  The handle and
     spacing are tightened so that up to five entries still fit into one row of
-    a single-column figure; beyond that the entries wrap and the reserved
-    headroom grows with the number of rows.
+    a single-column figure; beyond that the entries wrap into balanced rows and
+    the reserved headroom grows with the number of rows.
     """
     handles: list = []
     labels: list = []
@@ -258,8 +269,8 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
         fig.tight_layout()
         return
 
-    ncol = min(len(labels), 5 if fig.get_figwidth() < 5 else 8)
-    rows = -(-len(labels) // ncol)
+    rows = -(-len(labels) // (5 if fig.get_figwidth() < 5 else 8))
+    ncol = -(-len(labels) // rows)
     fig.tight_layout(rect=(0, 0, 1, 1 - 0.065 * rows))
     fig.legend(
         handles,
@@ -274,12 +285,28 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
 
 
 def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
-    """Force x-axis to show only integer tick values."""
-    ax.set_xticks(qubit_sizes)
-    ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(qubit_sizes))
+    """Force x-axis to show only integer tick values.
+
+    Sweeps over more than eight qubit counts label every other one, so that the
+    labels of a narrow single-column panel do not collide.
+    """
+    labelled = qubit_sizes[::2] if len(qubit_sizes) > 8 else qubit_sizes
+    ax.set_xticks(labelled)
+    ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(labelled))
+    ax.xaxis.set_minor_locator(matplotlib.ticker.FixedLocator(qubit_sizes))
     ax.xaxis.set_major_formatter(matplotlib.ticker.FixedFormatter(
-        [str(q) for q in qubit_sizes]
+        [str(q) for q in labelled]
     ))
+
+
+def _label_axes(axes, ylabel: str) -> None:
+    """Label the x axes of the bottom row and the y axes of the first column."""
+    for ax in axes:
+        spec = ax.get_subplotspec()
+        if spec.is_last_row():
+            ax.set_xlabel("n Qubits")
+        if spec.is_first_col():
+            ax.set_ylabel(ylabel)
 
 
 # ------------------------------------------------------------------
@@ -320,7 +347,7 @@ def _label(sim: str) -> str:
     """Display name for a simulator; pulse adapters drop their suffix."""
     name = sim.removesuffix("_pulse")
     # Spell the names the way their projects do (and the paper text does).
-    return {"jaqsi": "JAQSI", "pennylane": "PennyLane", "qutip": "QuTiP", "dynamiqs": "dynamiqs"}.get(name, name.capitalize())
+    return {"jaqsi": "JAQSI", "pennylane": "PennyLane", "pennylane_lightning": "PennyLane Lightning", "qutip": "QuTiP", "dynamiqs": "dynamiqs"}.get(name, name.capitalize())
 
 
 def _pick_reference(results: Dict[str, ModeResults]) -> str:
@@ -366,7 +393,7 @@ def plot_ratio(
 
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
-            1, n_modes, figsize=_figsize(n_modes),
+            *_grid(n_modes), figsize=_figsize(n_modes),
             sharey=True, squeeze=False,
         )
         axes = axes.flatten()
@@ -399,14 +426,13 @@ def plot_ratio(
                 )
 
             ax.axhline(1.0, color="0.4", linestyle="--", linewidth=1.0)
-            ax.set_xlabel("n Qubits")
             if n_modes > 1:
                 ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
             style_axes(ax)
 
-        axes[0].set_ylabel(f"Time ratio vs {_label(reference)}")
+        _label_axes(axes, f"Time ratio vs {_label(reference)}")
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
@@ -435,7 +461,7 @@ def plot_absolute(
 
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
-            1, n_modes, figsize=_figsize(n_modes),
+            *_grid(n_modes), figsize=_figsize(n_modes),
             sharey=True, squeeze=False,
         )
         axes = axes.flatten()
@@ -454,14 +480,13 @@ def plot_absolute(
                     alpha=0.9,
                 )
 
-            ax.set_xlabel("n Qubits")
             if n_modes > 1:
                 ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, mr.qubit_sizes)
             style_axes(ax)
 
-        axes[0].set_ylabel("Time (ms)")
+        _label_axes(axes, "Time (ms)")
         _add_shared_legend(fig, axes)
 
         if output_path is not None:
@@ -493,7 +518,7 @@ def plot_infidelity(
 
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
-            1, n_modes, figsize=_figsize(n_modes),
+            *_grid(n_modes), figsize=_figsize(n_modes),
             sharey=True, squeeze=False,
         )
         axes = axes.flatten()
@@ -512,14 +537,13 @@ def plot_infidelity(
 
             all_qubit_sizes = sorted({q for qs, _ in series.values() for q in qs})
             ax.axhline(MACHINE_EPS, color="0.4", linestyle="--", linewidth=1.0)
-            ax.set_xlabel("n Qubits")
             if n_modes > 1:
                 ax.set_title(mode.capitalize())
             ax.set_yscale("log")
             _set_integer_xticks(ax, all_qubit_sizes)
             style_axes(ax)
 
-        axes[0].set_ylabel("Infidelity $1 - F$")
+        _label_axes(axes, "Infidelity $1 - F$")
         _add_shared_legend(fig, axes)
 
         if output_path is not None:

@@ -48,7 +48,7 @@ GRAD_PRECISION = 1.0e-6
 SIMULATOR_REGISTRY: Dict[str, Tuple[str, str]] = {
     "jaqsi": ("jaqsi_sim", "JaqsiBenchmark"),
     "pennylane": ("pennylane_sim", "PennylaneBenchmark"),
-    "pennylane_adjoint": ("pennylane_sim", "PennylaneAdjointBenchmark"),
+    "pennylane_lightning": ("pennylane_sim", "PennylaneLightningBenchmark"),
     "pennylane_psr": ("pennylane_sim", "PennylanePsrBenchmark"),
     "qiskit": ("qiskit_sim", "QiskitBenchmark"),
     "qibo": ("qibo_sim", "QiboBenchmark"),
@@ -81,7 +81,7 @@ FIDELITY_MODES = frozenset({"state", "density", "probs", "noise"})
 # Gate-level PennyLane adapters batch through PennyLane's own parameter
 # broadcasting, which returns expval as ``(n_obs, batch)`` where every other
 # adapter returns ``(batch, n_obs)``.
-PENNYLANE_BROADCAST = frozenset({"pennylane", "pennylane_adjoint"})
+PENNYLANE_BROADCAST = frozenset({"pennylane", "pennylane_lightning"})
 
 
 def _level(simulator: str) -> str:
@@ -330,6 +330,12 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
         module_name, class_name = SIMULATOR_REGISTRY[name]
         module = importlib.import_module(f"benchmark.simulators.{module_name}")
         simulators.append(getattr(module, class_name)())
+
+    # Set on the class, so that a jaqsi_pulse reference recomputed outside the
+    # timed loop solves its pulses the same way as the timed one.
+    from benchmark.simulators.jaqsi_pulse_sim import JaqsiPulseBenchmark
+
+    JaqsiPulseBenchmark.closed_form = cfg.closed_form
 
     # Compute selected references first, independently of the requested order.
     simulators.sort(key=lambda sim: sim.name not in REFERENCE_BY_LEVEL.values())
