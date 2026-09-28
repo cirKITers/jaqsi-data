@@ -60,6 +60,16 @@ class TestLoadConfigDefaults:
 class TestLoadConfigOverrides:
     """CLI-style dot-list overrides should take precedence."""
 
+    def test_batch_not_divisible_by_threads_warns(self, caplog):
+        with caplog.at_level("WARNING"):
+            load_config(overrides=["threads=4", "execution.batch_size=10"])
+        assert "not a multiple of threads" in caplog.text
+
+    def test_batch_divisible_by_threads_does_not_warn(self, caplog):
+        with caplog.at_level("WARNING"):
+            load_config(overrides=["threads=5", "execution.batch_size=10"])
+        assert "not a multiple of threads" not in caplog.text
+
     def test_override_seed(self):
         cfg = load_config(overrides=["seed=42"])
         assert cfg.seed == 42

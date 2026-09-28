@@ -83,6 +83,17 @@ def test_changed_thread_environment_requires_a_new_run(
         provenance.record_provenance(path, cfg, has_results=True)
 
 
+def test_changed_jax_device_count_requires_a_new_run(
+    tmp_path, environment, monkeypatch
+):
+    path = tmp_path / "bench.csv"
+    cfg = load_config()
+    provenance.record_provenance(path, cfg, has_results=False)
+    monkeypatch.setenv("JAX_NUM_CPU_DEVICES", "7")
+    with pytest.raises(ValueError, match="thread environment changed"):
+        provenance.record_provenance(path, cfg, has_results=True)
+
+
 def test_source_identity_tracks_local_edits(tmp_path, monkeypatch):
     from importlib.machinery import ModuleSpec
 

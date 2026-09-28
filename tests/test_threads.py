@@ -29,7 +29,7 @@ def restore_affinity():
 @pytest.fixture(autouse=True)
 def restore_env(monkeypatch):
     """Isolate the thread environment variables from the rest of the session."""
-    for var in (*_THREAD_VARS, "XLA_FLAGS"):
+    for var in (*_THREAD_VARS, "XLA_FLAGS", "JAX_NUM_CPU_DEVICES"):
         monkeypatch.delenv(var, raising=False)
     yield
 
@@ -40,6 +40,11 @@ class TestPinThreads:
         pin_threads(threads)
         for var in _THREAD_VARS:
             assert os.environ[var] == str(threads)
+
+    @pytest.mark.parametrize("threads", [1, 2])
+    def test_one_jax_cpu_device_per_thread(self, threads):
+        pin_threads(threads)
+        assert os.environ["JAX_NUM_CPU_DEVICES"] == str(threads)
 
     def test_does_not_cap_numba(self):
         """NUMBA_NUM_THREADS is a cap that makes qibojit's constructor raise."""

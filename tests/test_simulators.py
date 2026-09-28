@@ -333,6 +333,26 @@ class TestOptimalConfigEquivalence:
 
         np.testing.assert_allclose(default_out, optimal_out, atol=1e-8)
 
+    @pytest.mark.parametrize("mode", ["probs", "expval", "state", "density"])
+    def test_parallel_aer_experiments_match_default(self, mode, monkeypatch):
+        """Aer runs the batch's experiments in parallel, one per thread."""
+        monkeypatch.setenv("OMP_NUM_THREADS", "2")
+        spec = build_spec("hea", 3, 2)
+        # Distinct samples, so a reordered batch shows.
+        inputs = jnp.linspace(0.1, 2.0, 4 * spec.n_inputs).reshape(4, -1)
+        weights = jnp.full((spec.n_weights,), 0.3)
+
+        default_sim = QiskitBenchmark()
+        default_sim.setup(spec, mode, optimal_config=False)
+        optimal_sim = QiskitBenchmark()
+        optimal_sim.setup(spec, mode, optimal_config=True)
+
+        np.testing.assert_allclose(
+            np.asarray(default_sim.run(inputs, weights)),
+            np.asarray(optimal_sim.run(inputs, weights)),
+            atol=1e-8,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Threading
