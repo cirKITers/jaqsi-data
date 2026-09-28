@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from jaqsi import PulseInformation
+from jaqsi import Evolution, PulseInformation
 
 from benchmark.circuits import PULSE_FAMILIES, CircuitSpec
 from benchmark.simulators.base import Mode
@@ -22,6 +22,12 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
 
     pulse = True
 
+    # Under the RWA every pulse is a single-term drive $f(t) H$, which jaqsi
+    # solves in closed form by integrating only the scalar pulse area.
+    # ``False`` integrates the matrix ODE instead, as the other pulse adapters
+    # do.  Set by the runner from the ``closed_form`` config option.
+    closed_form = True
+
     def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
         # ``pulse_model`` only transcribes the Hadamard and $CRX$ pulse
         # decompositions, so the other families have no pulse-level reference
@@ -37,4 +43,7 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
         # PulseInformation keeps the envelope, RWA flag and frame in class-level
         # state; restore the shipped defaults the pulse model transcribes.
         PulseInformation.reset_defaults()
+        # A solver default as well, so it is set on every setup and neither
+        # configuration can leak into the other.
+        Evolution.set_solver_defaults(closed_form=self.closed_form)
         super().setup(spec, mode, optimal_config=optimal_config)
