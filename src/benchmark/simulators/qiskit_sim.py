@@ -23,6 +23,7 @@ from qiskit_aer.noise import depolarizing_error
 
 from benchmark.circuits import CircuitSpec
 from benchmark.simulators.base import SimulatorBenchmark, Mode, _endian_reverse_indices
+from benchmark.threads import num_threads
 
 
 def _build_circuit(
@@ -181,10 +182,24 @@ class QiskitBenchmark(SimulatorBenchmark):
         Aer uses the same little-endian basis order as quantum_info, so the
         endian-reversal permutation *perm* is applied identically.  The circuit
         is transpiled once outside the timing loop; parameter binding stays a
-        per-sample loop to mirror the default path.
+        per-sample loop to mirror the default path.  The bound circuits of a
+        batch go to Aer in one ``run`` call, which executes up to one
+        experiment per pinned thread in parallel: Aer's native counterpart of
+        jaqsi splitting the batch over CPU devices.
         """
         method = "density_matrix" if mode in ("density", "noise") else "statevector"
         sim = AerSimulator(method=method, precision="double")
+        parallel = num_threads() or 1
+
+        def run_batch(qc, inputs, weights) -> list:
+            """Run *qc* bound to every sample; one result data dict each."""
+            w = np.asarray(weights)
+            bound = [
+                qc.assign_parameters(self._bindings(sample, w))
+                for sample in np.asarray(inputs)
+            ]
+            result = sim.run(bound, max_parallel_experiments=parallel).result()
+            return [result.data(i) for i in range(len(bound))]
 
         if mode == "state":
             qc = self._circuit.copy()
@@ -192,13 +207,8 @@ class QiskitBenchmark(SimulatorBenchmark):
             qc = transpile(qc, sim)
 
             def _run_state(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
-                w = np.asarray(weights)
-                results = []
-                for sample in np.asarray(inputs):
-                    bound = qc.assign_parameters(self._bindings(sample, w))
-                    sv = np.asarray(sim.run(bound).result().data(0)["sv"])
-                    results.append(sv[perm])
-                return jnp.array(np.stack(results))
+                data = run_batch(qc, inputs, weights)
+                return jnp.array(np.stack([np.asarray(d["sv"])[perm] for d in data]))
 
             return _run_state
 
@@ -208,13 +218,10 @@ class QiskitBenchmark(SimulatorBenchmark):
             qc = transpile(qc, sim)
 
             def _run_probs(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
-                w = np.asarray(weights)
-                results = []
-                for sample in np.asarray(inputs):
-                    bound = qc.assign_parameters(self._bindings(sample, w))
-                    probs = np.asarray(sim.run(bound).result().data(0)["probs"])
-                    results.append(probs[perm])
-                return jnp.array(np.stack(results))
+                data = run_batch(qc, inputs, weights)
+                return jnp.array(
+                    np.stack([np.asarray(d["probs"])[perm] for d in data])
+                )
 
             return _run_probs
 
@@ -230,14 +237,10 @@ class QiskitBenchmark(SimulatorBenchmark):
             qc = transpile(qc, sim)
 
             def _run_expval(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
-                w = np.asarray(weights)
-                results = []
-                for sample in np.asarray(inputs):
-                    bound = qc.assign_parameters(self._bindings(sample, w))
-                    data = sim.run(bound).result().data(0)
-                    evs = [float(np.real(data[f"z{i}"])) for i in range(n_qubits)]
-                    results.append(evs)
-                return jnp.array(np.array(results))
+                data = run_batch(qc, inputs, weights)
+                return jnp.array(
+                    [[float(np.real(d[f"z{i}"])) for i in range(n_qubits)] for d in data]
+                )
 
             return _run_expval
 
@@ -247,13 +250,10 @@ class QiskitBenchmark(SimulatorBenchmark):
             qc = transpile(qc, sim)
 
             def _run_density(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
-                w = np.asarray(weights)
-                results = []
-                for sample in np.asarray(inputs):
-                    bound = qc.assign_parameters(self._bindings(sample, w))
-                    dm = np.asarray(sim.run(bound).result().data(0)["dm"])
-                    results.append(dm[np.ix_(perm, perm)])
-                return jnp.array(np.stack(results))
+                data = run_batch(qc, inputs, weights)
+                return jnp.array(
+                    np.stack([np.asarray(d["dm"])[np.ix_(perm, perm)] for d in data])
+                )
 
             return _run_density
 
