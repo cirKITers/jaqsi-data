@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,6 +12,8 @@ from typing import List, Optional
 from omegaconf import OmegaConf, DictConfig
 
 from benchmark.circuits import FAMILIES
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -158,6 +161,12 @@ def load_config(
 
     if cfg.threads < 1:
         raise ValueError(f"threads must be at least 1, got {cfg.threads}")
+    if cfg.execution.batch_size % cfg.threads:
+        logger.warning(
+            f"batch_size {cfg.execution.batch_size} is not a multiple of threads "
+            f"{cfg.threads}: jaqsi runs the batch on one CPU device instead of "
+            f"splitting it over {cfg.threads}."
+        )
 
     # At zero the noise mode has no channels, and jaqsi would take the
     # state-vector route that mode exists to rule out.
