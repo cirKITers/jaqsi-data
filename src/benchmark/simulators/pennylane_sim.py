@@ -206,7 +206,7 @@ class PennylaneBenchmark(SimulatorBenchmark):
         return self._run_fn(inputs, weights)
 
 
-class PennylaneAdjointBenchmark(PennylaneBenchmark):
+class PennylaneLightningBenchmark(PennylaneBenchmark):
     """PennyLane on ``lightning.qubit`` with the adjoint gradient.
 
     Lightning is PennyLane's compiled state-vector backend and adjoint
@@ -214,7 +214,7 @@ class PennylaneAdjointBenchmark(PennylaneBenchmark):
     point a gradient comparison against PennyLane has to clear.
     """
 
-    name = "pennylane_adjoint"
+    name = "pennylane_lightning"
 
     device_name = "lightning.qubit"
     diff_method = "adjoint"
