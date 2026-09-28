@@ -6,7 +6,7 @@ quantum circuit simulation (no external provider or API key required).
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Tuple
 
 import numpy as np
 import jax.numpy as jnp
@@ -92,25 +92,33 @@ def _build_circuit(
 
 
 def _build_parametric_circuit(
-    spec: CircuitSpec, sample: np.ndarray, weights: np.ndarray
+    spec: CircuitSpec,
+    sample: np.ndarray,
+    weights: np.ndarray,
+    sources: Tuple[str, ...] = (),
 ) -> ParametricQuantumCircuit:
-    """Build *spec* with the trainable rotations as parametric gates.
+    """Build *spec* with the rotations read from *sources* as parametric gates.
 
     ``ParametricQuantumCircuit.backprop`` returns one gradient per parametric
-    gate, so only the trainable rotations are registered as parametric and the
-    data-encoding ones stay fixed.  The gradients then come back in exactly the
-    order of the trainable vector.
+    gate, so by default only the trainable rotations are registered as
+    parametric and the data-encoding ones stay fixed.  The gradients then come
+    back in exactly the order of the trainable vector.  With both vectors as
+    *sources* every rotation is parametric, so the circuit can be built once
+    and updated per sample through ``set_parameter``, in the order of
+    ``spec.ops``.
     """
-    trainable = spec.trainable
+    sources = sources or (spec.trainable,)
     circuit = ParametricQuantumCircuit(spec.n_qubits)
     for op in spec.ops:
         if op.gate == "H":
             circuit.add_H_gate(op.wires[0])
         elif op.gate == "CNOT":
             circuit.add_CNOT_gate(op.wires[0], op.wires[1])
+        elif op.gate == "DEPOL":
+            circuit.add_gate(DepolarizingNoise(op.wires[0], spec.depolarizing))
         elif op.gate in ("RX", "RZ"):
             theta = _SIGN * _angle(op, sample, weights)
-            if op.source == trainable:
+            if op.source in sources:
                 adder = (
                     circuit.add_parametric_RX_gate
                     if op.gate == "RX"
@@ -167,14 +175,37 @@ class QulacsBenchmark(SimulatorBenchmark):
         # Pre-compute the endian-reversal index permutation once.
         perm = _endian_reverse_indices(n_qubits)
 
-        def _build(sample: np.ndarray, weights: np.ndarray) -> QuantumCircuit:
-            circuit = _build_circuit(spec, sample, weights)
-            # The optimizer treats Qulacs' probabilistic noise gates as the
-            # identity and fuses them away, so a noisy circuit runs unfused.
-            if optimal_config and mode != "noise":
-                # In-place gate fusion; numerically identical to the default.
-                QuantumCircuitOptimizer().optimize_light(circuit)
-            return circuit
+        # Gate fusion needs concrete angles: the optimizer leaves parametric
+        # gates alone so that they stay updatable.  A fused circuit is
+        # therefore rebuilt for every sample inside the timed loop, which beats
+        # updating the angles of a parametric circuit built once from ten
+        # qubits on in expval and from four in density.
+        if (
+            optimal_config
+            and mode == "noise"
+            and all(op.gate != "CRX" for op in spec.ops)
+        ):
+            rotations = tuple(op for op in spec.ops if op.source is not None)
+            circuit = _build_parametric_circuit(
+                spec,
+                np.zeros(spec.n_inputs),
+                np.zeros(spec.n_weights),
+                sources=("inputs", "weights"),
+            )
+
+            def _build(sample: np.ndarray, weights: np.ndarray) -> QuantumCircuit:
+                for k, op in enumerate(rotations):
+                    circuit.set_parameter(k, _SIGN * _angle(op, sample, weights))
+                return circuit
+
+        else:
+
+            def _build(sample: np.ndarray, weights: np.ndarray) -> QuantumCircuit:
+                circuit = _build_circuit(spec, sample, weights)
+                if optimal_config and mode != "noise":
+                    # In-place gate fusion; numerically identical to the default.
+                    QuantumCircuitOptimizer().optimize_light(circuit)
+                return circuit
 
         if mode == "grad":
             return self._make_grad_fn(spec)
@@ -259,6 +290,12 @@ class QulacsBenchmark(SimulatorBenchmark):
         other adapters differentiate.  Qulacs labels qubit 0 as the least
         significant bit, but a sum over all qubits is invariant under that
         relabelling, so no reordering is needed.
+
+        The circuit is rebuilt for every sample.  Building it once would need
+        the data-encoding rotations as parametric gates too, which makes
+        ``backprop`` differentiate them as well: equal up to eight qubits and 7
+        to 10 percent slower from ten qubits on (measured as in
+        :meth:`_make_run_fn`).
         """
         observable = Observable(spec.n_qubits)
         for i in range(spec.n_qubits):
