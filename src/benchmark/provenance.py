@@ -74,7 +74,14 @@ def record_provenance(
     """
     settings = {
         name: getattr(cfg, name)
-        for name in ("seed", "warmup", "precision", "optimal_config", "depolarizing")
+        for name in (
+            "seed",
+            "warmup",
+            "precision",
+            "optimal_config",
+            "closed_form",
+            "depolarizing",
+        )
     }
     settings["n_iters"] = cfg.execution.n_iters
     identity = {

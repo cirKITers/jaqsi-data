@@ -53,7 +53,7 @@ class OutputConfig:
 ALL_SIMULATORS: List[str] = [
     "jaqsi",
     "pennylane",
-    "pennylane_adjoint",
+    "pennylane_lightning",
     "pennylane_psr",
     "qiskit",
     "qibo",
@@ -78,6 +78,10 @@ class BenchmarkConfig:
     depolarizing: float = 0.01
     precision: float = 1.0e-8
     optimal_config: bool = False
+    # Whether jaqsi_pulse solves single-term pulses in closed form, integrating
+    # only the scalar pulse area.  ``False`` makes it integrate the matrix ODE
+    # like the other pulse backends; gate-level simulators are unaffected.
+    closed_form: bool = True
     circuit: CircuitConfig = field(default_factory=CircuitConfig)
     qubits: QubitsConfig = field(default_factory=QubitsConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
@@ -138,6 +142,10 @@ def load_config(
     # Generate identifier if not provided
     if cfg.output.identifier is None:
         cfg.output.identifier = datetime.now().strftime("%Y%m%d%H%M%S")
+        # Both pulse solves label the simulator jaqsi_pulse, so the file name
+        # keeps their results apart.
+        if not cfg.closed_form:
+            cfg.output.identifier += "-ode"
 
     # Validate simulator names
     unknown = set(cfg.simulators) - set(ALL_SIMULATORS)
