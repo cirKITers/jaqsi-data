@@ -141,6 +141,25 @@ class TestPulseOptimalConfigEquivalence:
         np.testing.assert_allclose(default_out, optimal_out, atol=tolerance)
 
 
+class TestJaqsiPulseMatrixOde:
+    """Without the closed-form solve jaqsi_pulse integrates the matrix ODE."""
+
+    @pytest.mark.parametrize("mode", MODES)
+    def test_matches_closed_form(self, reference, mode, monkeypatch):
+        from jaqsi import Evolution
+
+        monkeypatch.setattr(JaqsiPulseBenchmark, "closed_form", False)
+        sim = JaqsiPulseBenchmark()
+        try:
+            sim.setup(SPEC, mode)
+            assert Evolution._solver_defaults["closed_form"] is False
+            result = np.asarray(sim.run(_inputs(), WEIGHTS))
+        finally:
+            Evolution.set_solver_defaults(closed_form=True)
+
+        np.testing.assert_allclose(result, reference[mode], atol=1e-8)
+
+
 # ------------------------------------------------------------------
 # Noise
 # ------------------------------------------------------------------

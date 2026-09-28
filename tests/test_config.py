@@ -56,6 +56,14 @@ class TestLoadConfigDefaults:
         assert len(cfg.output.identifier) == 14
         assert cfg.output.identifier.isdigit()
 
+    def test_matrix_ode_pulse_config_is_tagged(self):
+        """Both pulse solves are labelled jaqsi_pulse; the file name differs."""
+        assert load_config().closed_form is True
+        path = Path(__file__).parent.parent / "src/benchmark/configs/pulse-ode.yaml"
+        cfg = load_config(config_path=str(path))
+        assert cfg.closed_form is False
+        assert cfg.output.identifier.endswith("-ode")
+
 
 class TestLoadConfigOverrides:
     """CLI-style dot-list overrides should take precedence."""

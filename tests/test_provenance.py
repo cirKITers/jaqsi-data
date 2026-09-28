@@ -38,6 +38,7 @@ def test_records_config_and_allows_sweep_extension(tmp_path, environment):
     [
         "seed=12",
         "optimal_config=false",
+        "closed_form=false",
         "warmup=false",
         "precision=1e-5",
         "depolarizing=0.02",

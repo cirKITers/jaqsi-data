@@ -21,8 +21,8 @@ jax.config.update("jax_enable_x64", True)
 from benchmark.circuits import build_spec
 from benchmark.simulators.base import BenchmarkResult
 from benchmark.simulators.pennylane_sim import (
-    PennylaneAdjointBenchmark,
     PennylaneBenchmark,
+    PennylaneLightningBenchmark,
 )
 from benchmark.simulators.qiskit_sim import QiskitBenchmark
 from benchmark.simulators.qibo_sim import QiboBenchmark
@@ -48,7 +48,7 @@ def _run(sim, spec, batch_size: int = 1):
 # All simulator classes under test.
 _ALL_SIMULATORS = [
     pytest.param(PennylaneBenchmark, id="pennylane"),
-    pytest.param(PennylaneAdjointBenchmark, id="pennylane_adjoint"),
+    pytest.param(PennylaneLightningBenchmark, id="pennylane_lightning"),
     pytest.param(QiskitBenchmark, id="qiskit"),
     pytest.param(QiboBenchmark, id="qibo"),
     pytest.param(QulacsBenchmark, id="qulacs"),
@@ -361,8 +361,8 @@ class TestOptimalConfigEquivalence:
 class TestQiboThreading:
     """Qibo is the one backend that has to be pinned after construction.
 
-    ``optimal_config`` selects qibojit for density and numpy elsewhere, so the
-    mode below is what decides which backend is under test.
+    ``optimal_config`` selects qibojit in every mode and the default
+    configuration numpy, so that flag decides which backend is under test.
     """
 
     def test_numpy_backend_accepts_a_multi_thread_pinning(self, monkeypatch):
@@ -388,11 +388,11 @@ class TestQiboThreading:
         sim.setup(build_spec("hea", 2, 1), "density", optimal_config=True)
         assert qibo.get_threads() == threads
 
-    def test_state_vector_modes_use_numpy(self, monkeypatch):
-        """numpy has no set_threads, so a pinned run proves which backend ran."""
+    def test_state_vector_modes_use_qibojit(self, monkeypatch):
+        """At one thread qibojit is ahead of numpy in the state-vector modes too."""
         import qibo
 
-        monkeypatch.setenv("OMP_NUM_THREADS", "4")
+        monkeypatch.setenv("OMP_NUM_THREADS", "1")
         sim = QiboBenchmark()
         sim.setup(build_spec("hea", 2, 1), "expval", optimal_config=True)
-        assert qibo.get_backend().name == "numpy"
+        assert qibo.get_backend().name == "qibojit"

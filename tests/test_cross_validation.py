@@ -27,8 +27,8 @@ jax.config.update("jax_enable_x64", True)
 from benchmark.circuits import build_spec
 from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 from benchmark.simulators.pennylane_sim import (
-    PennylaneAdjointBenchmark,
     PennylaneBenchmark,
+    PennylaneLightningBenchmark,
     PennylanePsrBenchmark,
 )
 from benchmark.simulators.qiskit_sim import QiskitBenchmark
@@ -43,7 +43,7 @@ GRAD_PRECISION = 1e-6
 
 # Simulators under test (excluding PennyLane, which is the reference).
 _OTHER_SIMULATORS = [
-    pytest.param(PennylaneAdjointBenchmark, id="pennylane_adjoint"),
+    pytest.param(PennylaneLightningBenchmark, id="pennylane_lightning"),
     pytest.param(QiskitBenchmark, id="qiskit"),
     pytest.param(QiboBenchmark, id="qibo"),
     pytest.param(QulacsBenchmark, id="qulacs"),
@@ -185,7 +185,7 @@ class TestBatchCrossValidation:
 # separate packages that are not dependencies here.
 _GRAD_SIMULATORS = [
     pytest.param(PennylaneBenchmark, id="pennylane-backprop"),
-    pytest.param(PennylaneAdjointBenchmark, id="pennylane-adjoint"),
+    pytest.param(PennylaneLightningBenchmark, id="pennylane-lightning-adjoint"),
     pytest.param(PennylanePsrBenchmark, id="pennylane-parameter-shift"),
     pytest.param(QulacsBenchmark, id="qulacs-backprop"),
 ]
@@ -264,7 +264,7 @@ class TestGradientCrossValidation:
 # Noise cross-validation
 # ------------------------------------------------------------------
 
-# Every adapter that implements the noise mode.  pennylane_adjoint is absent:
+# Every adapter that implements the noise mode.  pennylane_lightning is absent:
 # lightning.qubit accepts no noise channels.
 _NOISE_SIMULATORS = [
     pytest.param(JaqsiBenchmark, id="jaqsi"),
@@ -303,6 +303,6 @@ class TestNoiseCrossValidation:
         rho = np.asarray(_run(JaqsiBenchmark(), spec, "noise"))[0]
         assert np.real(np.trace(rho @ rho)) < 0.99
 
-    def test_adjoint_skips_noise(self):
+    def test_lightning_skips_noise(self):
         spec = build_spec("hea", 2, 1, depolarizing=_DEPOLARIZING)
-        assert not PennylaneAdjointBenchmark().supports(spec, "noise")
+        assert not PennylaneLightningBenchmark().supports(spec, "noise")

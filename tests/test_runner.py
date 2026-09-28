@@ -191,12 +191,12 @@ class TestValidateResults:
         r2 = _result("pennylane", "expval", 3, pl_arr)
         _validate_results(r1, r2, precision=1e-8)
 
-    def test_expval_transposed_pennylane_adjoint(self):
+    def test_expval_transposed_pennylane_lightning(self):
         """The lightning adapter broadcasts the same way as default.qubit."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])
         pl_arr = jnp.array([[0.1], [0.2], [0.3]])
         r1 = _result("jaqsi", "expval", 3, ys_arr)
-        r2 = _result("pennylane_adjoint", "expval", 3, pl_arr)
+        r2 = _result("pennylane_lightning", "expval", 3, pl_arr)
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_pulse_pennylane(self):
