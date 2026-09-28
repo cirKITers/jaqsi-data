@@ -592,7 +592,7 @@ wheels = [
 [[package]]
 name = "jaqsi"
 version = "0.1.0"
-source = { git = "https://github.com/cirKITers/jaqsi?rev=7b4d548213fb1e06022abc4f839929cf9ad864d9#7b4d548213fb1e06022abc4f839929cf9ad864d9" }
+source = { git = "https://github.com/cirKITers/jaqsi?rev=99ebc1406eff447d0247ea2f0e12895658569d75#99ebc1406eff447d0247ea2f0e12895658569d75" }
 dependencies = [
     { name = "diffrax" },
     { name = "equinox" },
@@ -630,7 +630,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dynamiqs", git = "https://github.com/dynamiqs/dynamiqs?rev=991fd45a9d46c1220095633bad453b005276e9f7" },
-    { name = "jaqsi", git = "https://github.com/cirKITers/jaqsi?rev=7b4d548213fb1e06022abc4f839929cf9ad864d9" },
+    { name = "jaqsi", git = "https://github.com/cirKITers/jaqsi?rev=99ebc1406eff447d0247ea2f0e12895658569d75" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "omegaconf", specifier = ">=2.3" },
     { name = "pennylane", specifier = ">=0.44.1" },
