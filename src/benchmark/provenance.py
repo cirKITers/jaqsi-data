@@ -115,6 +115,7 @@ def record_provenance(
                 "QULACS_NUM_THREADS",
                 "XLA_FLAGS",
                 "JAX_PLATFORMS",
+                "JAX_NUM_CPU_DEVICES",
             )
         },
     }
