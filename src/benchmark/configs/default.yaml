@@ -61,7 +61,7 @@ depolarizing: 0.01
 simulators:
   - jaqsi
   - pennylane
-  - pennylane_adjoint
+  - pennylane_lightning
   # - pennylane_psr # too costly
   - qiskit
   - qibo

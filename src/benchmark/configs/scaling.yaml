@@ -14,7 +14,7 @@ execution:
   n_iters: 50
   batch_size: 10
 modes: [expval, grad]
-simulators: [jaqsi, pennylane, pennylane_adjoint]
+simulators: [jaqsi, pennylane, pennylane_lightning]
 output:
   dir: results
   identifier: null
