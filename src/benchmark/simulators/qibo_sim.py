@@ -1,9 +1,8 @@
 """Qibo simulator benchmark adapter.
 
 Local statevector / density-matrix simulation, no external provider or API key
-required.  ``optimal_config`` selects qibojit for the density mode and numpy
-for the state-vector modes; see :meth:`QiboBenchmark.setup` for the measurements
-behind that split.
+required.  ``optimal_config`` selects the qibojit backend in every mode; see
+:meth:`QiboBenchmark.setup` for the measurements behind that choice.
 """
 
 from __future__ import annotations
@@ -79,25 +78,7 @@ class QiboBenchmark(SimulatorBenchmark):
         # Backend selection is global to the process but only affects Qibo, so
         # it is set on every call and neither path can leak into the other.
         #
-        # Which backend is faster depends on the mode, and neither wins
-        # everywhere, so the optimal configuration picks per mode.  qibojit
-        # parallelises its kernels with numba, which pays off once the operand
-        # is large enough to amortise the launches; a density matrix holds
-        # $4^n$ entries against a state vector's $2^n$, so it crosses that
-        # point while the state-vector modes never do.  Measured on the
-        # hardware-efficient ansatz at four layers, batch 10, sixteen threads:
-        #
-        #     mode     n     numpy      qibojit
-        #     expval   8     47 ms      934 ms     numpy   20x
-        #     state    8     39 ms      470 ms     numpy   12x
-        #     density  9     14182 ms   1078 ms    qibojit 13x
-        #     density  10    66491 ms   2452 ms    qibojit 27x
-        #
-        # Picking one backend for everything costs an order of magnitude on
-        # half the sweep either way.  The qiskit adapter selects its Aer method
-        # by mode for the same reason.  The noise mode evolves the same density
-        # matrix, so it follows ``density``.
-        if optimal_config and mode in ("density", "noise"):
+        if optimal_config:
             set_backend("qibojit", platform="numba")
             # qibojit's constructor pins numba to one thread per available
             # core, ignoring the environment, so it is the one backend that has
@@ -171,11 +152,15 @@ class QiboBenchmark(SimulatorBenchmark):
                 results = []
                 for sample in np.asarray(inputs):
                     self._circuit.set_parameters(self._parameters(sample, w))
-                    result = self._circuit()
-                    state = result.state()
+                    self._circuit()
+                    # ``expectation`` reads the state the circuit just computed
+                    # and contracts it with the single-qubit Z of each term, the
+                    # route Qibo documents for symbolic Hamiltonians.
+                    # ``expectation_from_state`` would multiply the state with
+                    # the dense $2^n \times 2^n$ matrix of every observable.
+                    # https://qibo.science/qibo/stable/code-examples/advancedexamples.html
                     evs = [
-                        float(np.real(ham.expectation_from_state(state)))
-                        for ham in self._z_hams
+                        float(ham.expectation(self._circuit)) for ham in self._z_hams
                     ]
                     results.append(evs)
                 return jnp.array(np.array(results))
