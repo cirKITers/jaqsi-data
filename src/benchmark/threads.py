@@ -85,6 +85,12 @@ def pin_threads(threads: int) -> None:
             [existing, "--xla_cpu_multi_thread_eigen=false"]
         ).strip()
 
+    # XLA's intra-op threading barely speeds up one statevector, while the
+    # samples of a batch are independent.  One CPU device per pinned thread
+    # lets jaqsi split the batch over the same cores every simulator gets.
+    # Read when JAX initialises; other JAX simulators run on the first device.
+    os.environ["JAX_NUM_CPU_DEVICES"] = str(threads)
+
     how = "CPU affinity and environment" if pinned else "environment only"
     logger.info(f"Pinned all threading layers to {threads} thread(s) via {how}.")
 
