@@ -41,7 +41,7 @@ testpaths = ["tests"]
 # exists on the development branch, so pin a commit from there.  Earlier
 # commits fail to import under jax>=0.11.1.
 dynamiqs = { git = "https://github.com/dynamiqs/dynamiqs", rev = "991fd45a9d46c1220095633bad453b005276e9f7" }
-jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "7ad0afac16fcbfef38a84709a7e497af50865c4a" }
+jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "7b4d548213fb1e06022abc4f839929cf9ad864d9" }
 
 [tool.uv]
 required-environments = [
