@@ -3,8 +3,8 @@
 This repo contains code to produce benchmarking and profiling results for [JAQSI](https://github.com/cirKITers/jaqsi) comparing against the following quantum circuit simulators:
 
 - [PennyLane](https://github.com/PennyLaneAI/pennylane) — Xanadu's differentiable quantum programming framework (`default.qubit` device with JAX interface)
-- [Qiskit](https://github.com/Qiskit/qiskit) — IBM's quantum computing SDK (local `Statevector` / `DensityMatrix` simulation)
-- [Qibo](https://github.com/qiboteam/qibo) — Open-source framework for quantum simulation (numpy backend)
+- [Qiskit](https://github.com/Qiskit/qiskit) — IBM's quantum computing SDK (local `Statevector` / `DensityMatrix` simulation, or qiskit-aer under `optimal_config`)
+- [Qibo](https://github.com/qiboteam/qibo) — Open-source framework for quantum simulation (numpy backend, or qibojit under `optimal_config`)
 - [Qulacs](https://github.com/qulacs/qulacs) — Fast C/C++ quantum circuit simulator with Python interface
 
 JAQSI also simulates at pulse level, which is benchmarked separately against the simulators that offer time-dependent Hamiltonian evolution:
@@ -55,13 +55,13 @@ This is the parameter layout of a QML training step: a batch of data evaluated a
 Weights are redrawn every timed iteration, so no simulator can cache across the loop.
 
 The measurement modes probs, expval, state and density are joined by `grad`, which is not a measurement but a differentiation workload: the gradient of $\sum_i \langle Z_i \rangle$, summed over the batch, with respect to the circuit's trainable vector.
-Each framework reaches it by its own route, and the adapters are named after the method so a gradient figure says which one it plots:
+Each framework reaches it by its own route, and the adapters are named after the method or device so a gradient figure says which one it plots:
 
 | Adapter | Device | Differentiation |
 |---|---|---|
 | `jaqsi` | JAX | reverse-mode AD through the vmapped kernel |
 | `pennylane` | `default.qubit` | backpropagation |
-| `pennylane_adjoint` | `lightning.qubit` | adjoint method |
+| `pennylane_lightning` | `lightning.qubit` | adjoint method |
 | `pennylane_psr` | `default.qubit` | parameter-shift rule |
 | `qulacs` | Qulacs | `ParametricQuantumCircuit.backprop` |
 
@@ -74,14 +74,15 @@ It is also left out of the default simulator list: the parameter-shift rule cost
 Run it as its own small sweep instead:
 
 ```bash
-python -m benchmark simulators=[jaqsi,pennylane,pennylane_adjoint,pennylane_psr] \
+python -m benchmark simulators=[jaqsi,pennylane,pennylane_lightning,pennylane_psr] \
     modes=[grad] qubits.max=8 circuit.layers=[1,2] execution.n_iters=20
 ```
 
 All modes are cross-validated against JAQSI as the reference: forward results to `1e-8`, gradients to `1e-6`, since reverse-mode AD, the adjoint method and Qulacs' backprop accumulate their sums in different orders.
 
 Batching is asymmetric by design and is left that way rather than normalized.
-JAQSI vectorizes the batch with `jax.vmap`; PennyLane uses its own parameter broadcasting; Qiskit, Qibo and Qulacs loop over the batch in Python, and so do PennyLane's adjoint and parameter-shift paths, which do not accept broadcast inputs.
+JAQSI vectorizes the batch with `jax.vmap`; PennyLane uses its own parameter broadcasting; Qiskit hands it to Aer as parameter bindings of one circuit, which Aer runs sample by sample; Qibo and Qulacs loop over the batch in Python, and so do PennyLane's adjoint and parameter-shift paths, which do not accept broadcast inputs.
+Qulacs also rebuilds its circuit for every sample, since its gate fusion needs concrete angles; see `qulacs_sim.py` for the measurements behind that choice.
 That difference is a property of the frameworks, and it is what a QML workload actually pays.
 
 `lightning.qubit` is called through PennyLane's native interface rather than the JAX one.
@@ -97,18 +98,19 @@ This is not cosmetic. qibojit sizes numba from `len(psutil.Process().cpu_affinit
 
 Qibo is the one backend that cannot be pinned through the environment at all: qibojit sizes numba inside its constructor, so the adapter calls `qibo.set_threads` afterwards. The numpy backend is skipped there, because it is single-threaded by construction and raises for any count above one.
 
-Neither Qibo backend wins everywhere, so `optimal_config` picks per mode: qibojit for `density`, numpy for the state-vector modes. Measured on the hardware-efficient ansatz at four layers, batch 10, sixteen threads:
+At one thread qibojit is at least as fast as numpy in every mode, so `optimal_config` selects it throughout. Measured locally (Intel i7-1260P) on the hardware-efficient ansatz at one layer, batch 10, one thread, with `expval` on the symbolic observable path:
 
 | Mode | Qubits | numpy | qibojit | Winner |
 |---|---|---|---|---|
-| expval | 8 | 47 ms | 934 ms | numpy, 20x |
-| state | 8 | 39 ms | 470 ms | numpy, 12x |
-| density | 9 | 14182 ms | 1078 ms | qibojit, 13x |
-| density | 10 | 66491 ms | 2452 ms | qibojit, 27x |
+| expval | 8 | 4.5 ms | 3.5 ms | qibojit, 1.3x |
+| expval | 12 | 16.3 ms | 11.5 ms | qibojit, 1.4x |
+| state | 12 | 10.6 ms | 6.1 ms | qibojit, 1.7x |
+| density | 8 | 352 ms | 68 ms | qibojit, 5.2x |
+| noise | 8 | 547 ms | 268 ms | qibojit, 2.0x |
 
-qibojit parallelises its kernels with numba, which pays off once the operand is large enough to amortise the launches. A density matrix holds $4^n$ entries against a state vector's $2^n$, so it crosses that point while the state-vector modes never do. Committing to either backend for the whole sweep costs an order of magnitude on half of it. The Qiskit adapter selects its Aer method by mode for the same reason.
+The margins shift with thread count. At eight threads the two backends are on par up to eight qubits and qibojit leads beyond, whereas an earlier measurement at sixteen threads had numpy ahead on the state-vector modes by up to 20x, so re-measure before a multi-threaded run.
 
-The margins shift with thread count. At one thread qibojit is only 2x behind on the state-vector modes and 5.4x ahead on density at eight qubits; at sixteen the state-vector gap widens to 20x. The split above holds in both regimes, but re-measure before trusting a single backend anywhere.
+`expval` evaluates each $\langle Z_i \rangle$ through `SymbolicHamiltonian.expectation`, which contracts the state with the single-qubit term; `expectation_from_state` would multiply it with the dense $2^n \times 2^n$ matrix of the observable, which took 69 ms against 7 ms per batch at ten qubits.
 
 `NUMBA_NUM_THREADS` is deliberately not set. It is a hard cap, and qibojit's constructor requests one thread per core it can see, so a lower cap makes numba raise and the backend fails to build. Narrowing the affinity changes what that constructor sees instead.
 
@@ -142,6 +144,9 @@ Reporting both separates the two effects.
 Two asymmetries are left in place rather than normalized.
 JAQSI and dynamiqs vectorize the batch dimension with `jax.vmap` while PennyLane and QuTiP loop over it in Python, so the latter two pay the full batch factor.
 PennyLane's optimized path integrates with Dormand-Prince 5(4), the method `ParametrizedEvolution` is built on, while the others use Dormand-Prince 8(7); all four run at $10^{-10}$ absolute and relative tolerance.
+
+Under the RWA every segment is a single-term drive $f(t) H$, which commutes with itself at all times, so JAQSI solves it in closed form as $e^{-i F H}$ and integrates only the scalar pulse area $F = \int f(t)\,\mathrm{d}t$, while the other backends integrate the matrix ODE.
+[`src/benchmark/configs/pulse-ode.yaml`](src/benchmark/configs/pulse-ode.yaml) sets `closed_form: false`, under which `jaqsi_pulse` integrates the matrix ODE as well, so that the two runs separate the closed-form solve from the rest of the pulse engine.
 
 Timings block on the returned array before the clock is stopped, so the JAX-based adapters measure the completed computation rather than the asynchronous dispatch that returns immediately.
 
@@ -184,7 +189,7 @@ uv run python -m benchmark qubits.max=10 execution.n_iters=20
 ### Run with optimized simulator configurations
 
 By default each competitor simulator runs in its baseline configuration.
-Setting `optimal_config=true` switches them to performance-optimized configurations (PennyLane: `jax.jit`-compiled QNode; Qiskit: qiskit-aer C++ simulator; Qibo: qibojit for density and numpy for the state-vector modes; Qulacs: gate-fusion via `QuantumCircuitOptimizer`). 
+Setting `optimal_config=true` switches them to performance-optimized configurations (PennyLane: `jax.jit`-compiled QNode; Qiskit: qiskit-aer C++ simulator, binding the batch through `parameter_binds`; Qibo: qibojit; Qulacs: gate-fusion via `QuantumCircuitOptimizer`, and a noisy circuit built once). 
 These configurations are numerically equivalent to the defaults.
 JAQSI is unaffected.
 
@@ -232,6 +237,9 @@ uv run python -m benchmark --no-plot
 
 ```bash
 uv run python -m benchmark --config src/benchmark/configs/pulse.yaml
+
+# The same sweep without JAQSI's closed-form pulse solve
+uv run python -m benchmark --config src/benchmark/configs/pulse-ode.yaml
 ```
 
 The pulse configuration sweeps a smaller qubit range than the gate benchmark, because the schedule expands to $21n$ ODE segments that are solved sequentially.
@@ -247,6 +255,7 @@ The default configuration is located at [`src/benchmark/configs/default.yaml`](s
 | `threads` | `1` | Threads every simulator is pinned to |
 | `precision` | `1.0e-8` | Cross-validation tolerance for the forward modes |
 | `optimal_config` | `true` | Use performance-optimized simulator configurations instead of the default fallback |
+| `closed_form` | `true` | Let `jaqsi_pulse` solve single-term pulses in closed form; `false` integrates the matrix ODE (pulse level only) |
 | `circuit.family` | `hea` | Circuit family: `hea` or `crx_ring` |
 | `circuit.layers` | `[1, 2, 4, 8]` | Depths to sweep at every qubit count |
 | `qubits.min` | `2` | Minimum number of qubits |
@@ -254,7 +263,7 @@ The default configuration is located at [`src/benchmark/configs/default.yaml`](s
 | `execution.n_iters` | `100` | Number of timed iterations per data point |
 | `execution.batch_size` | `10` | Number of input samples per iteration |
 | `modes` | `[expval, state, density, grad]` | Measurement modes, plus the gradient workload |
-| `simulators` | `[jaqsi, pennylane, pennylane_adjoint, pennylane_psr, qiskit, qibo, qulacs]` | Simulators to include in the run |
+| `simulators` | `[jaqsi, pennylane, pennylane_lightning, pennylane_psr, qiskit, qibo, qulacs]` | Simulators to include in the run |
 | `output.dir` | `results` | Directory for output CSV and plots |
 | `output.identifier` | `null` | Run identifier (auto-generated timestamp if null) |
 
@@ -263,6 +272,7 @@ Any parameter can be overridden from the command line using dot-notation (e.g. `
 The gradient tolerance is not configurable; it is fixed at `1e-6` in `benchmark.runner.GRAD_PRECISION`.
 
 The pulse-level configuration at [`src/benchmark/configs/pulse.yaml`](src/benchmark/configs/pulse.yaml) uses the same parameters with `circuit.family` set to `crx_ring`, `simulators` set to `[jaqsi_pulse, pennylane_pulse, qutip_pulse, dynamiqs_pulse]` and a looser `precision` of `1.0e-5`. Simulator names ending in `_pulse` run at pulse level and are cross-validated against `jaqsi_pulse`; the two levels are never compared against each other.
+[`src/benchmark/configs/pulse-ode.yaml`](src/benchmark/configs/pulse-ode.yaml) differs from it only in `closed_form: false`. Since `jaqsi_pulse` keeps its name, the setting is recorded in the provenance sidecar, and an auto-generated identifier gets an `-ode` suffix.
 
 ## Output
 
@@ -438,7 +448,8 @@ sbatch slurm-job.sh
 │   ├── visualize.py         # Plotting and result aggregation
 │   ├── configs/
 │   │   ├── default.yaml     # Default benchmark parameters
-│   │   └── pulse.yaml       # Pulse-level benchmark parameters
+│   │   ├── pulse.yaml       # Pulse-level benchmark parameters
+│   │   └── pulse-ode.yaml   # Pulse level without JAQSI's closed-form solve
 │   └── simulators/
 │       ├── base.py          # Abstract base class & timing harness
 │       ├── jaqsi_sim.py     # JAQSI adapter (reference)
