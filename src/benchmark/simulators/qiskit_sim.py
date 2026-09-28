@@ -181,25 +181,38 @@ class QiskitBenchmark(SimulatorBenchmark):
 
         Aer uses the same little-endian basis order as quantum_info, so the
         endian-reversal permutation *perm* is applied identically.  The circuit
-        is transpiled once outside the timing loop; parameter binding stays a
-        per-sample loop to mirror the default path.  The bound circuits of a
-        batch go to Aer in one ``run`` call, which executes up to one
-        experiment per pinned thread in parallel: Aer's native counterpart of
-        jaqsi splitting the batch over CPU devices.
+        is transpiled once outside the timing loop and stays parameterized: the
+        batch goes to Aer in one ``run`` call with ``parameter_binds``, one
+        value per sample and parameter, so Aer binds the parameters itself
+        instead of Python building one circuit per sample.  Aer executes up to
+        one bound experiment per pinned thread in parallel: its native
+        counterpart of jaqsi splitting the batch over CPU devices.  See
+        https://qiskit.github.io/qiskit-aer/stubs/qiskit_aer.AerSimulator.html
         """
         method = "density_matrix" if mode in ("density", "noise") else "statevector"
         sim = AerSimulator(method=method, precision="double")
         parallel = num_threads() or 1
+        # Aer 0.17 returns a single result for a whole list of bindings once a
+        # controlled rotation (crx, cry, crz, cp) carries a parameter, so the
+        # $CRX$ of ``crx_ring`` are still bound per sample in Python.
+        native = all(inst.operation.name != "crx" for inst in self._circuit.data)
 
         def run_batch(qc, inputs, weights) -> list:
             """Run *qc* bound to every sample; one result data dict each."""
+            x = np.asarray(inputs)
             w = np.asarray(weights)
-            bound = [
-                qc.assign_parameters(self._bindings(sample, w))
-                for sample in np.asarray(inputs)
-            ]
-            result = sim.run(bound, max_parallel_experiments=parallel).result()
-            return [result.data(i) for i in range(len(bound))]
+            batch = len(x)
+            if native:
+                binds = {p: x[:, i] for i, p in enumerate(self._x)}
+                binds.update({p: np.full(batch, v) for p, v in zip(self._w, w)})
+                job = sim.run(
+                    qc, parameter_binds=[binds], max_parallel_experiments=parallel
+                )
+            else:
+                bound = [qc.assign_parameters(self._bindings(s, w)) for s in x]
+                job = sim.run(bound, max_parallel_experiments=parallel)
+            result = job.result()
+            return [result.data(i) for i in range(batch)]
 
         if mode == "state":
             qc = self._circuit.copy()
