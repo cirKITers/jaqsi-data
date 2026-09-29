@@ -38,7 +38,7 @@ testpaths = ["tests"]
 [tool.uv.sources]
 # Pin dynamiqs to a commit compatible with JAQSI's JAX version.
 dynamiqs = { git = "https://github.com/dynamiqs/dynamiqs", rev = "991fd45a9d46c1220095633bad453b005276e9f7" }
-jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "56aee46cdcfcc635ad72711ac0b9a8b35cfb7431" }
+jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "639a6f8714a7eaf5e478b695c5d4f9d7fcbf0906" }
 
 [tool.uv]
 required-environments = [
