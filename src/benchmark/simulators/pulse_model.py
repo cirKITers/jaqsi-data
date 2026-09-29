@@ -13,14 +13,17 @@ defaults, which are read from jaqsi.  Under the RWA the carrier drops out of the
 coefficients, leaving
 
 $$ H(t) = \\tfrac{1}{2}\\,w\\,\\bigl(E(t)\\,P + Q(t)\\,P_\\perp\\bigr), \\qquad
-   E(t) = A e^{-(t - T/2)^2/(2\\sigma^2)}, \\qquad
-   Q(t) = -\\beta \\dot{E}(t) = \\frac{\\beta (t - T/2)}{\\sigma^2} E(t) $$
+   E(t) = A \\frac{g(t) - g(0)}{1 - g(0)}, \\qquad
+   Q(t) = -\\beta \\dot{E}(t) = \\frac{\\beta A (t - T/2)}{\\sigma^2}
+   \\frac{g(t)}{1 - g(0)} $$
 
-for the driven $RY$ ($P = Y$) of duration $T$, whose envelope is centred at the
-pulse midpoint and whose quadrature $Q$ drives $P_\\perp = -X$ for ``drag`` and
-vanishes for ``gaussian``, and a constant $H$ for the virtual $RZ$, the $CZ$
-coupling and the Hadamard correction phase.  Only numpy is imported at module
-level so the module stays usable without the optional pulse backends.
+with $g(t) = e^{-(t - T/2)^2/(2\\sigma^2)}$ for the driven $RY$ ($P = Y$) of
+duration $T$, whose lifted Gaussian envelope is centred at the pulse midpoint
+and vanishes at its edges, and whose quadrature $Q$ drives $P_\\perp = -X$ for
+``drag`` and vanishes for ``gaussian``, and a constant $H$ for the virtual
+$RZ$, the $CZ$ coupling and the Hadamard correction phase.  Only numpy is
+imported at module level so the module stays usable without the optional pulse
+backends.
 """
 
 from __future__ import annotations
@@ -111,21 +114,32 @@ def in_phase_env(t, envelope: Tuple[float, ...], duration: float, xp=np):
     """Evaluate the in-phase envelope $E(t)$ of a driven rotation.
 
     Matches ``PulseEnvelope.gaussian`` and ``PulseEnvelope.drag``, which are
-    the same Gaussian, centred at the midpoint of the pulse of length
-    *duration*.  Pass ``xp=jnp`` for the JAX-based backends.
+    the same lifted Gaussian, centred at the midpoint of the pulse of length
+    *duration* and zero at its edges.  Written with ``expm1`` as in jaqsi, so
+    that it stays accurate for $\\sigma$ well above the duration and finite
+    outside the pulse, where adaptive solvers may probe their first step.  Pass
+    ``xp=jnp`` for the JAX-based backends.
     """
     amplitude, sigma = envelope[0], envelope[-1]
-    return amplitude * xp.exp(-((t - duration / 2) ** 2) / (2.0 * sigma**2))
+    # Exponents of $g(t)$ and $g(0)$, and their difference without cancellation.
+    a = -((t - duration / 2) ** 2) / (2.0 * sigma**2)
+    b = -((duration / 2) ** 2) / (2.0 * sigma**2)
+    d = t * (duration - t) / (2.0 * sigma**2)
+    rise = xp.expm1(xp.minimum(d, 0.0)) - xp.expm1(xp.minimum(-d, 0.0))
+    return amplitude * xp.exp(xp.maximum(a, b)) * rise / -xp.expm1(b)
 
 
 def quadrature_env(t, envelope: Tuple[float, float, float], duration: float, xp=np):
     """Evaluate the DRAG quadrature envelope $Q(t) = -\\beta \\dot{E}(t)$.
 
-    Matches ``PulseEnvelope.drag_quadrature``.
+    Matches ``PulseEnvelope.drag_quadrature``.  Unlike $E$, it does not vanish
+    at the pulse edges.
     """
-    _, beta, sigma = envelope
-    offset = t - duration / 2
-    return beta * offset / sigma**2 * in_phase_env(t, envelope, duration, xp)
+    amplitude, beta, sigma = envelope
+    center = duration / 2
+    gauss = xp.exp(-((t - center) ** 2) / (2.0 * sigma**2))
+    lift = -xp.expm1(-(center**2) / (2.0 * sigma**2))
+    return amplitude * beta * (t - center) / sigma**2 * gauss / lift
 
 
 def make_coeff_fns(segment: Segment, params, xp=np) -> List[Callable]:

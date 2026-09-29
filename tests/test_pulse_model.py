@@ -32,8 +32,11 @@ from benchmark.simulators.pulse_model import (
     build_schedule,
     depolarize,
     embed,
+    in_phase_env,
     make_coeff_fns,
     project_state,
+    quadrature_env,
+    ry_envelope,
 )
 from benchmark.simulators import pulse_model
 
@@ -202,6 +205,30 @@ class TestNoise:
 
 class TestTranscription:
     """The schedule reproduces what jaqsi's pulse gates actually execute."""
+
+    @pytest.mark.parametrize("xp", [np, jnp])
+    def test_envelopes_match_jaqsi(self, xp):
+        """$E$ and $Q$ equal jaqsi's lifted Gaussian and its DRAG quadrature.
+
+        $E$ vanishes at the pulse edges, and both stay finite far outside the
+        pulse, where adaptive solvers may probe their first step.
+        """
+        from jaqsi.pulses import PulseEnvelope
+
+        (amplitude, _, sigma), duration = ry_envelope("drag")
+        envelope = (amplitude, 0.3, sigma)
+        ts = np.array([-1e11, 0.0, 0.3 * duration, duration / 2, duration, 1e11])
+
+        for ours, fn in (
+            (in_phase_env, PulseEnvelope.drag),
+            (quadrature_env, PulseEnvelope.drag_quadrature),
+        ):
+            values = np.asarray(ours(xp.asarray(ts), envelope, duration, xp))
+            expected = [fn(jnp.array(envelope), t, duration / 2) for t in ts]
+            np.testing.assert_allclose(values, expected, atol=1e-12)
+            assert np.all(np.isfinite(values))
+        assert in_phase_env(0.0, envelope, duration) == 0.0
+        assert in_phase_env(duration, envelope, duration) == 0.0
 
     def test_scipy_matches_jaqsi_pulse(self):
         n_qubits = 2

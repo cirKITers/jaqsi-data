@@ -121,11 +121,13 @@ The default is one thread, the single-thread regime Yao, Qulacs and JuliVQC repo
 The pulse-level benchmark runs the `crx_ring` circuit, but every gate is expanded into the sequence of time evolutions $\mathrm{d}U/\mathrm{d}t = -i H(t) U$ that JAQSI's `PulseGates` execute: $3n$ segments for the Hadamard layer plus $18n$ for every $CRX$ ring, i.e. $21n$ at the default depth of one.
 That schedule is transcribed once in [`src/benchmark/simulators/pulse_model.py`](src/benchmark/simulators/pulse_model.py) and rebuilt from there by each adapter, so all simulators integrate the same segments with the same coefficients and durations rather than their own pulse model.
 
-The transcription covers the shipped JAQSI defaults, i.e. the drag envelope with the rotating-wave approximation enabled, under which the driven rotations evolve under
+The transcription covers JAQSI's rotating-wave approximation with the Gaussian or the DRAG envelope at its calibrated defaults, selected by `envelope`, under which the driven rotations evolve under
 
-$$ H(t) = \tfrac{1}{2}\,\Omega(t)\,w\,P, \qquad \Omega(t) = A e^{-t^2/(8\sigma^2)}\left(1 - \frac{\beta t}{2\sigma^2}\right) $$
+$$ H(t) = \tfrac{1}{2}\,w\,\bigl(E(t)\,P + Q(t)\,P_\perp\bigr), \qquad E(t) = A\,\frac{g(t) - g(0)}{1 - g(0)}, \qquad g(t) = e^{-(t - T/2)^2/(2\sigma^2)}, \qquad Q(t) = -\beta\,\dot{E}(t) $$
 
 while the virtual $RZ$, the $CZ$ coupling and the Hadamard correction phase evolve under a constant $H$.
+The envelope is centred at the midpoint of the pulse of duration $T$ and lifted, as in JAQSI, so that it vanishes at $t = 0$ and $t = T$; the envelope parameters and $T$ are read from JAQSI's calibrated defaults.
+The quadrature $Q$ of DRAG drives the orthogonal axis $P_\perp$, which is $-X$ for the $RY$ of the schedule, and vanishes for the Gaussian.
 
 Pulse results carry each backend's ODE solver error, so they are cross-validated against `jaqsi_pulse` at a solver-limited tolerance.
 That error accumulates over the $21n$ solves run in sequence, and `expval` amplifies it because it sums $2^n$ probabilities, which makes it the mode that sets the tolerance: at 8 qubits the full-register path deviates by $1.2 \cdot 10^{-6}$ there against $3 \cdot 10^{-8}$ in `probs`.
@@ -145,7 +147,8 @@ Two asymmetries are left in place rather than normalized.
 JAQSI and dynamiqs vectorize the batch dimension with `jax.vmap` while PennyLane and QuTiP loop over it in Python, so the latter two pay the full batch factor.
 PennyLane's optimized path integrates with Dormand-Prince 5(4), the method `ParametrizedEvolution` is built on, while the others use Dormand-Prince 8(7); all four run at $10^{-10}$ absolute and relative tolerance.
 
-Under the RWA every segment is a single-term drive $f(t) H$, which commutes with itself at all times, so JAQSI solves it in closed form as $e^{-i F H}$ and integrates only the scalar pulse area $F = \int f(t)\,\mathrm{d}t$, while the other backends integrate the matrix ODE.
+Under the RWA with the Gaussian envelope every segment is a single-term drive $f(t) H$, which commutes with itself at all times, so JAQSI solves it in closed form as $e^{-i F H}$ and integrates only the scalar pulse area $F = \int f(t)\,\mathrm{d}t$, while the other backends integrate the matrix ODE.
+With `envelope: drag`, the $RY$ segments carry the quadrature as a second, non-commuting term, which JAQSI integrates as a matrix ODE regardless of `closed_form`.
 [`src/benchmark/configs/pulse-ode.yaml`](src/benchmark/configs/pulse-ode.yaml) sets `closed_form: false`, under which `jaqsi_pulse` integrates the matrix ODE as well, so that the two runs separate the closed-form solve from the rest of the pulse engine.
 
 Timings block on the returned array before the clock is stopped, so the JAX-based adapters measure the completed computation rather than the asynchronous dispatch that returns immediately.
@@ -256,6 +259,7 @@ The default configuration is located at [`src/benchmark/configs/default.yaml`](s
 | `precision` | `1.0e-8` | Cross-validation tolerance for the forward modes |
 | `optimal_config` | `true` | Use performance-optimized simulator configurations instead of the default fallback |
 | `closed_form` | `true` | Let `jaqsi_pulse` solve single-term pulses in closed form; `false` integrates the matrix ODE (pulse level only) |
+| `envelope` | `gaussian` | Pulse envelope of the driven rotations, `gaussian` or `drag` (pulse level only) |
 | `circuit.family` | `hea` | Circuit family: `hea` or `crx_ring` |
 | `circuit.layers` | `[1, 2, 4, 8]` | Depths to sweep at every qubit count |
 | `qubits.min` | `2` | Minimum number of qubits |
@@ -273,6 +277,7 @@ The gradient tolerance is not configurable; it is fixed at `1e-6` in `benchmark.
 
 The pulse-level configuration at [`src/benchmark/configs/pulse.yaml`](src/benchmark/configs/pulse.yaml) uses the same parameters with `circuit.family` set to `crx_ring`, `simulators` set to `[jaqsi_pulse, pennylane_pulse, qutip_pulse, dynamiqs_pulse]` and a looser `precision` of `1.0e-5`. Simulator names ending in `_pulse` run at pulse level and are cross-validated against `jaqsi_pulse`; the two levels are never compared against each other.
 [`src/benchmark/configs/pulse-ode.yaml`](src/benchmark/configs/pulse-ode.yaml) differs from it only in `closed_form: false`. Since `jaqsi_pulse` keeps its name, the setting is recorded in the provenance sidecar, and an auto-generated identifier gets an `-ode` suffix.
+Both set `envelope: gaussian`, so that every pulse is a single-term drive and the two runs isolate the closed-form solve. The envelope is recorded in the provenance sidecar as well, and an auto-generated identifier gets a `-drag` suffix for `envelope: drag`.
 
 ## Output
 
