@@ -29,7 +29,7 @@ from benchmark.simulators.pulse_model import (
     build_schedule,
     depolarize,
     embed,
-    make_coeff_fn,
+    make_coeff_fns,
     project_state,
 )
 
@@ -42,7 +42,9 @@ class QutipPulseBenchmark(SimulatorBenchmark):
     name = "qutip_pulse"
 
     def __init__(self) -> None:
-        self._segments: List[Tuple[Optional[qutip.Qobj], Union[Segment, Channel]]] = []
+        self._segments: List[
+            Tuple[Optional[Tuple[qutip.Qobj, ...]], Union[Segment, Channel]]
+        ] = []
         self._psi0: qutip.Qobj | None = None
         self._mode: Mode = "probs"
         self._n_qubits: int = 0
@@ -68,12 +70,18 @@ class QutipPulseBenchmark(SimulatorBenchmark):
         # tensor order matches the big-endian convention of the pulse model, so
         # no basis permutation is needed.  Channels carry no operator; the
         # density-matrix solvers apply them.
-        segments = build_schedule(spec)
+        segments = build_schedule(spec, self.envelope)
         if optimal_config:
             self._segments = [
                 (None, seg)
                 if isinstance(seg, Channel)
-                else (qutip.Qobj(seg.op, dims=[[2] * len(seg.wires)] * 2), seg)
+                else (
+                    tuple(
+                        qutip.Qobj(op, dims=[[2] * len(seg.wires)] * 2)
+                        for op in seg.ops
+                    ),
+                    seg,
+                )
                 for seg in segments
             ]
         else:
@@ -84,7 +92,10 @@ class QutipPulseBenchmark(SimulatorBenchmark):
                 (None, seg)
                 if isinstance(seg, Channel)
                 else (
-                    qutip.Qobj(embed(seg.op, seg.wires, n_qubits), dims=dims).to("CSR"),
+                    tuple(
+                        qutip.Qobj(embed(op, seg.wires, n_qubits), dims=dims).to("CSR")
+                        for op in seg.ops
+                    ),
                     seg,
                 )
                 for seg in segments
@@ -94,11 +105,15 @@ class QutipPulseBenchmark(SimulatorBenchmark):
     # ------------------------------------------------------------------
     # Execution helpers
     # ------------------------------------------------------------------
-    def _hamiltonian(self, op: qutip.Qobj, seg: Segment, params: np.ndarray):
-        """Return the segment Hamiltonian ``c(t) * op`` at *params*."""
-        if seg.drag is None:
-            return float(seg.angle_fn(params)) * op
-        return qutip.QobjEvo([[op, make_coeff_fn(seg, params)]])
+    def _hamiltonian(
+        self, ops: Tuple[qutip.Qobj, ...], seg: Segment, params: np.ndarray
+    ):
+        """Return the segment Hamiltonian $\\sum_k c_k(t) H_k$ at *params*."""
+        if seg.envelope is None:
+            return float(seg.angle_fn(params)) * ops[0]
+        return qutip.QobjEvo(
+            [[op, coeff] for op, coeff in zip(ops, make_coeff_fns(seg, params))]
+        )
 
     def _solve(self, params: np.ndarray) -> np.ndarray:
         """Evolve $\\lvert 0 \\dots 0 \\rangle$ through the full pulse schedule."""

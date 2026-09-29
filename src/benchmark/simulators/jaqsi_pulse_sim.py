@@ -22,10 +22,12 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
 
     pulse = True
 
-    # Under the RWA every pulse is a single-term drive $f(t) H$, which jaqsi
-    # solves in closed form by integrating only the scalar pulse area.
-    # ``False`` integrates the matrix ODE instead, as the other pulse adapters
-    # do.  Set by the runner from the ``closed_form`` config option.
+    # Under the RWA every pulse of a single-quadrature envelope is a
+    # single-term drive $f(t) H$, which jaqsi solves in closed form by
+    # integrating only the scalar pulse area; DRAG rotations keep a second
+    # term and always take the matrix ODE.  ``False`` integrates the matrix ODE
+    # for every pulse, as the other pulse adapters do.  Set by the runner from
+    # the ``closed_form`` config option.
     closed_form = True
 
     def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
@@ -41,8 +43,9 @@ class JaqsiPulseBenchmark(JaqsiBenchmark):
         self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
     ) -> None:
         # PulseInformation keeps the envelope, RWA flag and frame in class-level
-        # state; restore the shipped defaults the pulse model transcribes.
-        PulseInformation.reset_defaults()
+        # state; restore the shipped defaults with the envelope the pulse model
+        # transcribes.
+        PulseInformation.reset_defaults(envelope=self.envelope)
         # A solver default as well, so it is set on every setup and neither
         # configuration can leak into the other.
         Evolution.set_solver_defaults(closed_form=self.closed_form)

@@ -7,17 +7,20 @@ decomposition.  This module restates that sequence for the benchmark circuit
 coefficient callables, so that every simulator adapter integrates the identical
 ODE sequence rather than its own pulse model.
 
-The transcription mirrors ``jaqsi.pulses`` with the shipped defaults,
-i.e. the ``drag`` envelope with the rotating-wave approximation enabled.  Under
-the RWA the carrier drops out of the coefficients, leaving
+The transcription mirrors ``jaqsi.pulses`` with the rotating-wave approximation
+enabled and either the ``gaussian`` or the ``drag`` envelope at its calibrated
+defaults, which are read from jaqsi.  Under the RWA the carrier drops out of the
+coefficients, leaving
 
-$$ H(t) = \\tfrac{1}{2}\\,\\Omega(t)\\,w\\,P, \\qquad
-   \\Omega(t) = A e^{-t^2/(8\\sigma^2)}\\left(1 - \\frac{\\beta t}{2\\sigma^2}\\right) $$
+$$ H(t) = \\tfrac{1}{2}\\,w\\,\\bigl(E(t)\\,P + Q(t)\\,P_\\perp\\bigr), \\qquad
+   E(t) = A e^{-(t - T/2)^2/(2\\sigma^2)}, \\qquad
+   Q(t) = -\\beta \\dot{E}(t) = \\frac{\\beta (t - T/2)}{\\sigma^2} E(t) $$
 
-for the driven rotations ($P \\in \\{X, Y\\}$) and a constant $H$ for the
-virtual $RZ$, the $CZ$ coupling and the Hadamard correction phase.  Only numpy
-is imported here so the module stays usable without the optional pulse
-backends.
+for the driven $RY$ ($P = Y$) of duration $T$, whose envelope is centred at the
+pulse midpoint and whose quadrature $Q$ drives $P_\\perp = -X$ for ``drag`` and
+vanishes for ``gaussian``, and a constant $H$ for the virtual $RZ$, the $CZ$
+coupling and the Hadamard correction phase.  Only numpy is imported at module
+level so the module stays usable without the optional pulse backends.
 """
 
 from __future__ import annotations
@@ -28,21 +31,7 @@ from typing import Callable, List, Optional, Tuple, Union
 import numpy as np
 
 from benchmark.circuits import CircuitSpec
-
-# Calibrated drag parameters $(A, \beta, \sigma)$ and gate durations, taken
-# from ``PulseEnvelope.REGISTRY`` in jaqsi.
-RX_DRAG: Tuple[float, float, float] = (
-    0.326562746114197,
-    0.4002767596709071,
-    5.3228107728890315,
-)
-RX_DURATION: float = 3.141300761986467
-RY_DRAG: Tuple[float, float, float] = (
-    0.323287924190616,
-    0.4065017233024265,
-    7.00299644871222,
-)
-RY_DURATION: float = 3.139481229843545
+from benchmark.config import PULSE_ENVELOPES
 
 # Calibrated scale factors of the constant-coefficient gates.  Both act over a
 # unit time span, so $RZ(w)$ evolves under $\frac{w}{2} Z$ and $CZ$ under
@@ -72,18 +61,24 @@ H_CORRECTION = (np.pi / 2) * _ID
 class Segment:
     """One time evolution of the pulse schedule.
 
-    The Hamiltonian is ``coeff(t) * op`` acting on ``wires``, integrated from
-    $0$ to ``duration``.  ``angle_fn`` maps the circuit's input parameter
-    vector to the segment's scale factor; ``drag`` holds the envelope
-    parameters of a driven rotation and is ``None`` for the
-    constant-coefficient gates.
+    The Hamiltonian is ``coeff(t) * op`` acting on ``wires``, plus
+    ``quad_coeff(t) * quad_op`` for a DRAG rotation, integrated from $0$ to
+    ``duration``.  ``angle_fn`` maps the circuit's input parameter vector to
+    the segment's scale factor; ``envelope`` holds the envelope parameters of a
+    driven rotation and is ``None`` for the constant-coefficient gates.
     """
 
     op: np.ndarray
     wires: Tuple[int, ...]
     duration: float
     angle_fn: Callable[[np.ndarray], float]
-    drag: Optional[Tuple[float, float, float]] = None
+    envelope: Optional[Tuple[float, ...]] = None
+    quad_op: Optional[np.ndarray] = None
+
+    @property
+    def ops(self) -> Tuple[np.ndarray, ...]:
+        """Operators of the Hamiltonian terms, the DRAG quadrature last."""
+        return (self.op,) if self.quad_op is None else (self.op, self.quad_op)
 
 
 @dataclass(frozen=True)
@@ -98,33 +93,61 @@ class Channel:
     p: float
 
 
-def drag_env(t, drag: Tuple[float, float, float], xp=np):
-    """Evaluate the drag envelope $\\Omega(t)$ of a driven rotation.
+def ry_envelope(envelope: str) -> Tuple[Tuple[float, ...], float]:
+    """Return the calibrated envelope parameters of the driven $RY$ and its duration.
 
-    Matches ``PulseEnvelope.drag`` evaluated at the moving pulse centre
-    $t_c = t/2$.  Pass ``xp=jnp`` for the JAX-based backends.
+    Read from ``PulseEnvelope.REGISTRY`` in jaqsi: $(A, \\sigma)$ for the
+    Gaussian and $(A, \\beta, \\sigma)$ for DRAG.
     """
-    amplitude, beta, sigma = drag
-    gaussian = amplitude * xp.exp(-(t**2) / (8.0 * sigma**2))
-    return gaussian * (1.0 - beta * t / (2.0 * sigma**2))
+    from jaqsi.pulses import PulseEnvelope
+
+    *params, duration = (
+        float(x) for x in PulseEnvelope.get(envelope)["defaults"]["RY"]
+    )
+    return tuple(params), duration
 
 
-def make_coeff_fn(segment: Segment, params, xp=np) -> Callable:
-    """Return the time-dependent coefficient $c(t)$ of *segment* at *params*.
+def in_phase_env(t, envelope: Tuple[float, ...], duration: float, xp=np):
+    """Evaluate the in-phase envelope $E(t)$ of a driven rotation.
 
-    Constant-coefficient segments return their scale factor unchanged, so the
-    callable is valid for every segment type.
+    Matches ``PulseEnvelope.gaussian`` and ``PulseEnvelope.drag``, which are
+    the same Gaussian, centred at the midpoint of the pulse of length
+    *duration*.  Pass ``xp=jnp`` for the JAX-based backends.
+    """
+    amplitude, sigma = envelope[0], envelope[-1]
+    return amplitude * xp.exp(-((t - duration / 2) ** 2) / (2.0 * sigma**2))
+
+
+def quadrature_env(t, envelope: Tuple[float, float, float], duration: float, xp=np):
+    """Evaluate the DRAG quadrature envelope $Q(t) = -\\beta \\dot{E}(t)$.
+
+    Matches ``PulseEnvelope.drag_quadrature``.
+    """
+    _, beta, sigma = envelope
+    offset = t - duration / 2
+    return beta * offset / sigma**2 * in_phase_env(t, envelope, duration, xp)
+
+
+def make_coeff_fns(segment: Segment, params, xp=np) -> List[Callable]:
+    """Return the coefficients $c(t)$ of the terms of *segment* at *params*.
+
+    The list follows ``segment.ops``.  Constant-coefficient segments return
+    their scale factor unchanged, so the callables are valid for every segment
+    type.
     """
     angle = segment.angle_fn(params)
-    if segment.drag is None:
-        return lambda t: angle
+    if segment.envelope is None:
+        return [lambda t: angle]
 
-    drag = segment.drag
+    envelope, duration = segment.envelope, segment.duration
 
     def coeff(t):
-        return 0.5 * drag_env(t, drag, xp) * angle
+        return 0.5 * in_phase_env(t, envelope, duration, xp) * angle
 
-    return coeff
+    def quad_coeff(t):
+        return 0.5 * quadrature_env(t, envelope, duration, xp) * angle
+
+    return [coeff] if segment.quad_op is None else [coeff, quad_coeff]
 
 
 def embed(op: np.ndarray, wires: Tuple[int, ...], n_qubits: int, xp=np):
@@ -246,14 +269,22 @@ def _rz(angle_fn: Callable[[np.ndarray], float], wire: int) -> Segment:
     )
 
 
-def _ry(angle_fn: Callable[[np.ndarray], float], wire: int) -> Segment:
-    """Driven $RY$ rotation with the calibrated drag envelope."""
+def _ry(
+    angle_fn: Callable[[np.ndarray], float], wire: int, envelope: str
+) -> Segment:
+    """Driven $RY$ rotation with the calibrated *envelope*.
+
+    The DRAG quadrature drives $-X$, the axis the carrier phase $\\pi/2$ of
+    $RY$ rotates the quadrature onto.
+    """
+    params, duration = ry_envelope(envelope)
     return Segment(
         op=PAULI_Y,
         wires=(wire,),
-        duration=RY_DURATION,
+        duration=duration,
         angle_fn=angle_fn,
-        drag=RY_DRAG,
+        envelope=params,
+        quad_op=-PAULI_X if envelope == "drag" else None,
     )
 
 
@@ -277,21 +308,25 @@ def _correction(wire: int) -> Segment:
     )
 
 
-def _hadamard(wire: int) -> List[Segment]:
+def _hadamard(wire: int, envelope: str) -> List[Segment]:
     """Hadamard as $RZ(\\pi)$, $RY(\\frac{\\pi}{2})$ and the correction phase."""
     return [
         _rz(lambda params: np.pi, wire),
-        _ry(lambda params: np.pi / 2, wire),
+        _ry(lambda params: np.pi / 2, wire, envelope),
         _correction(wire),
     ]
 
 
-def _cnot(control: int, target: int) -> List[Segment]:
+def _cnot(control: int, target: int, envelope: str) -> List[Segment]:
     """$CX$ as $H$, $CZ$, $H$ on the target."""
-    return [*_hadamard(target), _cz(control, target), *_hadamard(target)]
+    return [
+        *_hadamard(target, envelope),
+        _cz(control, target),
+        *_hadamard(target, envelope),
+    ]
 
 
-def _crx(control: int, target: int, index: int) -> List[Segment]:
+def _crx(control: int, target: int, index: int, envelope: str) -> List[Segment]:
     """$CRX(\\phi)$ as two $CX$ interleaved with $RY(\\pm\\frac{\\phi}{2})$.
 
     *index* is the position of this gate's angle within the circuit's input
@@ -299,30 +334,38 @@ def _crx(control: int, target: int, index: int) -> List[Segment]:
     """
     return [
         _rz(lambda params: np.pi / 2, target),
-        _ry(lambda params: params[index] / 2, target),
-        *_cnot(control, target),
-        _ry(lambda params: -params[index] / 2, target),
-        *_cnot(control, target),
+        _ry(lambda params: params[index] / 2, target, envelope),
+        *_cnot(control, target, envelope),
+        _ry(lambda params: -params[index] / 2, target, envelope),
+        *_cnot(control, target, envelope),
         _rz(lambda params: -np.pi / 2, target),
     ]
 
 
-def build_schedule(spec: CircuitSpec) -> List[Union[Segment, Channel]]:
+def build_schedule(
+    spec: CircuitSpec, envelope: str = "gaussian"
+) -> List[Union[Segment, Channel]]:
     """Return the pulse schedule of *spec* in execution order.
 
-    Only the Hadamard and $CRX$ decompositions are transcribed, so the
-    ``crx_ring`` family is the only one with a pulse-level counterpart: its
-    Hadamard layer contributes $3 n$ segments and every $CRX$ ring another
-    $18 n$, i.e. $21 n$ at a depth of one.  A noisy spec adds a
+    *envelope* is the jaqsi pulse envelope of the driven rotations,
+    ``gaussian`` or ``drag``.  Only the Hadamard and $CRX$ decompositions are
+    transcribed, so the ``crx_ring`` family is the only one with a pulse-level
+    counterpart: its Hadamard layer contributes $3 n$ segments and every $CRX$
+    ring another $18 n$, i.e. $21 n$ at a depth of one.  A noisy spec adds a
     :class:`Channel` wherever it holds a ``DEPOL`` op, after the segments of
     the gate before it.
     """
+    if envelope not in PULSE_ENVELOPES:
+        raise ValueError(
+            f"Envelope {envelope!r} has no pulse transcription. "
+            f"Available: {PULSE_ENVELOPES}"
+        )
     segments: List[Union[Segment, Channel]] = []
     for op in spec.ops:
         if op.gate == "H":
-            segments.extend(_hadamard(op.wires[0]))
+            segments.extend(_hadamard(op.wires[0], envelope))
         elif op.gate == "CRX":
-            segments.extend(_crx(op.wires[0], op.wires[1], op.index))
+            segments.extend(_crx(op.wires[0], op.wires[1], op.index, envelope))
         elif op.gate == "DEPOL":
             segments.append(Channel(op.wires[0], spec.depolarizing))
         else:

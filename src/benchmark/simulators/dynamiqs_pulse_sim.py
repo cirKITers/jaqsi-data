@@ -28,7 +28,7 @@ from benchmark.simulators.pulse_model import (
     build_schedule,
     depolarize,
     embed,
-    make_coeff_fn,
+    make_coeff_fns,
     project_state,
 )
 
@@ -68,10 +68,12 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
         # tensor order matches the big-endian convention of the pulse model, so
         # no basis permutation is needed.  Channels carry no operator; the
         # density-matrix solvers apply them.
-        segments = build_schedule(spec)
+        segments = build_schedule(spec, self.envelope)
         if optimal_config:
             ops = [
-                None if isinstance(seg, Channel) else dq.asqarray(jnp.asarray(seg.op))
+                None
+                if isinstance(seg, Channel)
+                else tuple(dq.asqarray(jnp.asarray(op)) for op in seg.ops)
                 for seg in segments
             ]
         else:
@@ -80,20 +82,27 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
             ops = [
                 None
                 if isinstance(seg, Channel)
-                else dq.asqarray(
-                    jnp.asarray(embed(seg.op, seg.wires, n_qubits, xp=jnp)),
-                    dims=(2,) * n_qubits,
-                    layout=dq.dia,
+                else tuple(
+                    dq.asqarray(
+                        jnp.asarray(embed(op, seg.wires, n_qubits, xp=jnp)),
+                        dims=(2,) * n_qubits,
+                        layout=dq.dia,
+                    )
+                    for op in seg.ops
                 )
                 for seg in segments
             ]
         psi0 = dq.basis([2] * n_qubits, [0] * n_qubits)
 
-        def hamiltonian(op, seg, params: jnp.ndarray):
-            """Return the segment Hamiltonian ``c(t) * op`` at *params*."""
-            if seg.drag is None:
-                return seg.angle_fn(params) * op
-            return dq.modulated(make_coeff_fn(seg, params, xp=jnp), op)
+        def hamiltonian(seg_ops, seg, params: jnp.ndarray):
+            """Return the segment Hamiltonian $\\sum_k c_k(t) H_k$ at *params*."""
+            if seg.envelope is None:
+                return seg.angle_fn(params) * seg_ops[0]
+            terms = [
+                dq.modulated(coeff, op)
+                for op, coeff in zip(seg_ops, make_coeff_fns(seg, params, xp=jnp))
+            ]
+            return sum(terms[1:], terms[0])
 
         def solve(params: jnp.ndarray) -> jnp.ndarray:
             """Evolve $\\lvert 0 \\dots 0 \\rangle$ through the pulse schedule."""

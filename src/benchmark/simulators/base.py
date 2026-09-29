@@ -69,6 +69,8 @@ class SimulatorBenchmark(ABC):
 
     name: str  # e.g. "jaqsi", "pennylane"
 
+    envelope: str = "gaussian"
+
     @abstractmethod
     def setup(
         self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False

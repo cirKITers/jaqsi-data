@@ -26,8 +26,9 @@ from benchmark.simulators.pulse_model import (
     Channel,
     Segment,
     build_schedule,
-    drag_env,
-    make_coeff_fn,
+    in_phase_env,
+    make_coeff_fns,
+    quadrature_env,
 )
 
 # Tolerances for the jax.experimental.ode integrator, matching jaqsi's solver.
@@ -38,32 +39,42 @@ _RTOL = 1.0e-10
 def _parametrized_hamiltonian(segment: Segment) -> qml.pulse.ParametrizedHamiltonian:
     """Return ``c(t) * op`` for *segment* with the scale factor as parameter.
 
-    The coefficient takes the segment's scale factor as its single trainable
-    parameter, so the same object serves every value of $\\phi$.
+    Every coefficient takes the segment's scale factor as its trainable
+    parameter, so the same object serves every value of $\\phi$.  A DRAG
+    rotation adds its quadrature as a second term.
     """
     op = qml.Hermitian(segment.op, wires=segment.wires)
-    if segment.drag is None:
+    if segment.envelope is None:
         return (lambda p, t: p) * op
 
-    drag = segment.drag
-    return (lambda p, t: 0.5 * drag_env(t, drag, jnp) * p) * op
+    envelope, duration = segment.envelope, segment.duration
+    hamiltonian = (
+        lambda p, t: 0.5 * in_phase_env(t, envelope, duration, jnp) * p
+    ) * op
+    if segment.quad_op is not None:
+        quad_op = qml.Hermitian(segment.quad_op, wires=segment.wires)
+        hamiltonian += (
+            lambda p, t: 0.5 * quadrature_env(t, envelope, duration, jnp) * p
+        ) * quad_op
+    return hamiltonian
 
 
 def _segment_unitary(segment: Segment, params) -> jnp.ndarray:
-    """Solve $\\mathrm{d}U/\\mathrm{d}t = -i c(t) H U$ over one segment.
+    """Solve $\\mathrm{d}U/\\mathrm{d}t = -i \\sum_k c_k(t) H_k U$ over one segment.
 
     The Hamiltonian acts on one or two wires, so only the local unitary is
     integrated rather than one over the full register.
     """
-    op = jnp.asarray(segment.op)
-    coeff = make_coeff_fn(segment, params, jnp)
+    ops = [jnp.asarray(op) for op in segment.ops]
+    coeffs = make_coeff_fns(segment, params, jnp)
 
     def rhs(u, t):
-        return -1j * coeff(t) * (op @ u)
+        terms = [coeff(t) * (op @ u) for coeff, op in zip(coeffs, ops)]
+        return -1j * sum(terms[1:], terms[0])
 
     return odeint(
         rhs,
-        jnp.eye(op.shape[0], dtype=complex),
+        jnp.eye(segment.op.shape[0], dtype=complex),
         jnp.array([0.0, segment.duration]),
         atol=_ATOL,
         rtol=_RTOL,
@@ -93,7 +104,7 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
         self._n_qubits = n_qubits
         self._mode = mode
 
-        segments = build_schedule(spec)
+        segments = build_schedule(spec, self.envelope)
         # default.mixed is the only PennyLane device that accepts channels.
         device_name = "default.mixed" if mode == "noise" else "default.qubit"
         dev = qml.device(device_name, wires=n_qubits)
@@ -149,7 +160,10 @@ class PennylanePulseBenchmark(SimulatorBenchmark):
                         continue
                     hamiltonian, angle_fn, duration = evolution
                     qml.evolve(hamiltonian)(
-                        [angle_fn(params)], t=duration, atol=_ATOL, rtol=_RTOL
+                        [angle_fn(params)] * len(hamiltonian.coeffs_parametrized),
+                        t=duration,
+                        atol=_ATOL,
+                        rtol=_RTOL,
                     )
                 return return_map[mode]()
 
