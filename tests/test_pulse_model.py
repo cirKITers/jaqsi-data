@@ -32,9 +32,10 @@ from benchmark.simulators.pulse_model import (
     build_schedule,
     depolarize,
     embed,
-    make_coeff_fn,
+    make_coeff_fns,
     project_state,
 )
+from benchmark.simulators import pulse_model
 
 # Both integrators run near their own accuracy floor; the residual is the
 # difference between two independent ODE solvers, not a modelling error.
@@ -53,18 +54,18 @@ def _inputs(spec) -> np.ndarray:
     return np.full(spec.n_inputs, PHI)
 
 
-def _scipy_state(n_qubits: int, phi: float) -> np.ndarray:
+def _scipy_state(n_qubits: int, phi: float, envelope: str = "gaussian") -> np.ndarray:
     """Integrate the pulse schedule with scipy, independently of jax."""
     psi = np.zeros(2**n_qubits, dtype=complex)
     psi[0] = 1.0
 
     spec = _spec(n_qubits)
     params = np.full(spec.n_inputs, phi)
-    for segment in build_schedule(spec):
-        op = embed(segment.op, segment.wires, n_qubits)
-        coeff = make_coeff_fn(segment, params)
+    for segment in build_schedule(spec, envelope):
+        ops = [embed(op, segment.wires, n_qubits) for op in segment.ops]
+        coeffs = make_coeff_fns(segment, params)
         solution = solve_ivp(
-            lambda t, y: -1j * coeff(t) * (op @ y),
+            lambda t, y: -1j * sum(c(t) * (op @ y) for c, op in zip(coeffs, ops)),
             (0.0, segment.duration),
             psi,
             method="DOP853",
@@ -94,6 +95,26 @@ class TestSchedule:
         """Only the Hadamard and CRX decompositions are transcribed."""
         with pytest.raises(ValueError, match="no pulse transcription"):
             build_schedule(build_spec("hea", 2, 1))
+
+    def test_unsupported_envelope_raises(self):
+        with pytest.raises(ValueError, match="no pulse transcription"):
+            build_schedule(_spec(2), "square")
+
+    @pytest.mark.parametrize("envelope", ["gaussian", "drag"])
+    def test_only_drag_drives_a_quadrature(self, envelope):
+        """DRAG adds a $-X$ term to every RY, without changing the count."""
+        schedule = build_schedule(_spec(3), envelope)
+        assert len(schedule) == 21 * 3
+        # One RY per Hadamard, six per CRX.
+        driven = [s for s in schedule if s.envelope is not None]
+        assert len(driven) == 7 * 3
+        for segment in driven:
+            np.testing.assert_array_equal(segment.op, PAULI_Y)
+            if envelope == "drag":
+                np.testing.assert_array_equal(segment.quad_op, -PAULI_X)
+                assert len(make_coeff_fns(segment, _inputs(_spec(3)))) == 2
+            else:
+                assert segment.quad_op is None
 
     @pytest.mark.parametrize("n_qubits", [2, 3])
     def test_embedding_is_hermitian(self, n_qubits):
@@ -195,6 +216,28 @@ class TestTranscription:
             atol=SOLVER_PRECISION,
             err_msg="transcribed schedule diverges from jaqsi's pulse gates",
         )
+
+    def test_drag_quadrature_matches_jaqsi_pulse(self, drag_with_beta, monkeypatch):
+        """The DRAG quadrature drives the axis, with the sign, jaqsi's RY uses.
+
+        With the quadrature on $+X$ instead the schedule diverges from jaqsi
+        far beyond the solver precision.
+        """
+        n_qubits = 2
+        sim = JaqsiPulseBenchmark()
+        spec = _spec(n_qubits)
+        sim.setup(spec, "state")
+        jaqsi_psi = np.asarray(sim.run(jnp.array([_inputs(spec)]), jnp.zeros(0)))[0]
+
+        np.testing.assert_allclose(
+            jaqsi_psi,
+            _scipy_state(n_qubits, PHI, "drag"),
+            atol=SOLVER_PRECISION,
+            err_msg="transcribed DRAG schedule diverges from jaqsi's pulse gates",
+        )
+        monkeypatch.setattr(pulse_model, "PAULI_X", -PAULI_X)
+        flipped = _scipy_state(n_qubits, PHI, "drag")
+        assert np.max(np.abs(jaqsi_psi - flipped)) > 100 * SOLVER_PRECISION
 
     def test_project_state_matches_jaqsi_pulse(self):
         n_qubits = 2

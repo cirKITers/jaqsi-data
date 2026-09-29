@@ -141,6 +141,29 @@ class TestPulseOptimalConfigEquivalence:
         np.testing.assert_allclose(default_out, optimal_out, atol=tolerance)
 
 
+class TestPulseDragCrossValidation:
+    """Two-term DRAG pulses agree across all pulse simulators.
+
+    Runs at a non-zero DRAG weight, as the calibrated one leaves the
+    quadrature term numerically silent.
+    """
+
+    @pytest.mark.parametrize("optimal", [False, True], ids=["default", "optimal"])
+    @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
+    @pytest.mark.parametrize("mode", ["state", "density"])
+    def test_matches_reference(self, drag_with_beta, sim_cls, mode, optimal):
+        ref = JaqsiPulseBenchmark()
+        ref.setup(SPEC, mode)
+        expected = np.asarray(ref.run(_inputs(), WEIGHTS))
+
+        sim = sim_cls()
+        sim.setup(SPEC, mode, optimal_config=optimal)
+        np.testing.assert_allclose(
+            np.asarray(sim.run(_inputs(), WEIGHTS)), expected, atol=PRECISION,
+            err_msg=f"drag {mode} mismatch: {sim.name} vs jaqsi_pulse",
+        )
+
+
 class TestJaqsiPulseMatrixOde:
     """Without the closed-form solve jaqsi_pulse integrates the matrix ODE."""
 

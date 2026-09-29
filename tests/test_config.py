@@ -64,6 +64,22 @@ class TestLoadConfigDefaults:
         assert cfg.closed_form is False
         assert cfg.output.identifier.endswith("-ode")
 
+    @pytest.mark.parametrize("name", ["pulse.yaml", "pulse-ode.yaml"])
+    def test_pulse_configs_use_the_gaussian(self, name):
+        """Both pulse configs run single-quadrature pulses, differing in the solve."""
+        path = Path(__file__).parent.parent / "src/benchmark/configs" / name
+        assert load_config(config_path=str(path)).envelope == "gaussian"
+
+    def test_drag_envelope_is_tagged(self):
+        assert load_config().envelope == "gaussian"
+        cfg = load_config(overrides=["envelope=drag"])
+        assert cfg.envelope == "drag"
+        assert cfg.output.identifier.endswith("-drag")
+
+    def test_unknown_envelope_raises(self):
+        with pytest.raises(ValueError, match="Unknown envelope"):
+            load_config(overrides=["envelope=square"])
+
 
 class TestLoadConfigOverrides:
     """CLI-style dot-list overrides should take precedence."""

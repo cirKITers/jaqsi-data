@@ -9,6 +9,11 @@ import pytest
 
 from benchmark.runner import CSV_COLUMNS
 
+# DRAG weight of the ``drag_with_beta`` fixture, large enough that a quadrature
+# on the wrong axis or with the wrong sign moves the state far beyond the
+# cross-validation tolerances.
+TEST_BETA = 0.3
+
 
 @pytest.fixture
 def tmp_results_dir(tmp_path: Path) -> Path:
@@ -47,3 +52,25 @@ def sample_csv(tmp_path: Path) -> Path:
         writer.writerow(CSV_COLUMNS)
         writer.writerows(rows)
     return csv_path
+
+@pytest.fixture
+def drag_with_beta(monkeypatch):
+    """Run the pulse adapters on DRAG with a non-zero weight ``TEST_BETA``.
+
+    The calibrated DRAG weight vanishes, which leaves the quadrature term
+    numerically silent.  jaqsi's defaults, which the transcription reads, are
+    patched, and jaqsi's pulse state is reset afterwards.
+    """
+    import jax.numpy as jnp
+    from jaqsi.pulses import PulseEnvelope, PulseInformation
+
+    from benchmark.simulators.base import SimulatorBenchmark
+
+    defaults = PulseEnvelope.REGISTRY["drag"]["defaults"]
+    monkeypatch.setitem(
+        defaults, "RY", jnp.asarray(defaults["RY"]).at[1].set(TEST_BETA)
+    )
+    monkeypatch.setattr(SimulatorBenchmark, "envelope", "drag")
+    yield
+    monkeypatch.undo()
+    PulseInformation.reset_defaults()
