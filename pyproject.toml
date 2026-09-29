@@ -1,7 +1,7 @@
 [project]
 name = "jaqsi-data"
 version = "0.1.0"
-description = "Benchmarking related experiments for the JAQSI simulator"
+description = "Benchmarks and profiles for the JAQSI simulator"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -36,10 +36,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-# The dynamiqs release on PyPI (0.3.4) caps jax<0.7, which conflicts with
-# jaqsi.  The relaxed bound (jax>=0.4.36, !=0.7.0, !=0.7.1) only
-# exists on the development branch, so pin a commit from there.  Earlier
-# commits fail to import under jax>=0.11.1.
+# Pin dynamiqs to a commit compatible with JAQSI's JAX version.
 dynamiqs = { git = "https://github.com/dynamiqs/dynamiqs", rev = "991fd45a9d46c1220095633bad453b005276e9f7" }
 jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "2701f5eadd071d9c1427d9e485028094abfe6351" }
 
@@ -47,7 +44,5 @@ jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "2701f5eadd071d9c142
 required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
-# qibojit caps psutil<6.0.0, but jaqsi requires psutil>=7.2.2.
-# psutil's APIs used by qibojit (cpu_count, virtual_memory) are stable across
-# 6.x/7.x, so force the newer psutil past qibojit's stale upper bound.
+# Resolve the qibojit and JAQSI psutil version conflict.
 override-dependencies = ["psutil>=7.2.2"]

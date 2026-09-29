@@ -1,48 +1,31 @@
-# Benchmark configuration
+# Default gate-level benchmark.
 seed: 1000
 warmup: true
 precision: 1.0e-8
 
-# Use performance-optimized simulator configurations (default = fallback configs)
+# Use optimized simulator configurations.
 optimal_config: true
 
-# Threads every simulator is pinned to, before any numerical library is
-# imported.  One is the single-thread regime the Yao, Qulacs and JuliVQC
-# benchmarks report; set it to the core count for the multi-threaded regime and
-# report the two separately.  Without this, qibojit silently takes one thread
-# per available core while nothing else is pinned.
+# Threads per simulator.
 threads: 1
 
-# Which circuit to run and at which depths.
-#   hea       hardware-efficient ansatz: an RX data-encoding layer followed by
-#             `layers` blocks of rotations per wire and a CNOT ring.  Blocks are
-#             RZ-RX-RZ except the last, which is RZ-RX, following Yao and
-#             Qulacs.  Weights are shared across the batch, inputs are not,
-#             which is the parameter layout of a QML training step.
-#   crx_ring  Hadamard layer followed by `layers` rings of CRX, each gate with
-#             its own angle.  The only family with a pulse-level counterpart.
-# Listing several depths sweeps depth at every qubit count.
+# Circuit family and depths to sweep.
 circuit:
   family: hea
   layers:
     - 1
 
-# Qubit sweep range (inclusive)
+# Inclusive qubit range.
 qubits:
   min: 2
   max: 14
 
-# Execution settings
+# Iterations and batch size.
 execution:
   n_iters: 20
   batch_size: 10
 
-# Which measurement modes to benchmark.  `grad` is not a measurement but the
-# gradient of the summed Pauli-Z expectation with respect to the trainable
-# parameters, timed and cross-validated like the others.  `noise` returns the
-# density matrix of the circuit with a depolarizing channel after every gate,
-# which makes every simulator evolve the density matrix, jaqsi included, where
-# `density` is formed from the state vector.
+# Workloads to benchmark.
 modes:
   - expval
   # - state
@@ -51,25 +34,21 @@ modes:
   # - probs
   - noise
 
-# Probability of the single-qubit depolarizing channel `noise` applies after
-# every gate, on each wire the gate acts on.  Timings do not depend on it.
+# Per-gate depolarizing probability in noise mode.
 depolarizing: 0.01
 
-# Which simulators to run.  The pennylane entries differ only in how they
-# differentiate: backpropagation on default.qubit and the adjoint method on
-# lightning.qubit.
+# Simulators to benchmark.
 simulators:
   - jaqsi
   - pennylane
   - pennylane_lightning
-  # - pennylane_psr # too costly
+  # - pennylane_psr
   - qiskit
   - qibo
   - qulacs
 
-# Output settings
+# Output location and run identifier.
 output:
   dir: results
-  # Set a fixed identifier to resume a previous run; null generates a timestamp
-  # appended by a git hash
+  # Use a fixed identifier to resume a run.
   identifier: null

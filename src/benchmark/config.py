@@ -24,12 +24,7 @@ class QubitsConfig:
 
 @dataclass
 class CircuitConfig:
-    """Which circuit to benchmark and at which depths.
-
-    ``family`` selects a circuit from :mod:`benchmark.circuits`; ``layers``
-    lists the depths to sweep, so a run can vary depth at fixed width and
-    width at fixed depth from the same config.
-    """
+    """Circuit family and depths to sweep."""
 
     family: str = "hea"
     layers: List[int] = field(default_factory=lambda: [1])
@@ -47,9 +42,7 @@ class OutputConfig:
     identifier: Optional[str] = None
 
 
-# All available simulator names (used for validation).  Names ending in
-# ``_pulse`` run the circuit at pulse level and are validated against
-# ``jaqsi_pulse`` rather than the gate-level reference.
+# Simulator names accepted by configuration validation.
 ALL_SIMULATORS: List[str] = [
     "jaqsi",
     "pennylane",
@@ -65,7 +58,7 @@ ALL_SIMULATORS: List[str] = [
 ]
 
 
-# jaqsi pulse envelopes ``pulse_model`` transcribes.
+# JAQSI pulse envelopes supported by pulse_model.
 PULSE_ENVELOPES: List[str] = ["gaussian", "drag"]
 
 
@@ -73,24 +66,15 @@ PULSE_ENVELOPES: List[str] = ["gaussian", "drag"]
 class BenchmarkConfig:
     seed: int = 1000
     warmup: bool = True
-    # Threads every simulator is pinned to.  One is the single-thread regime
-    # the Yao, Qulacs and JuliVQC benchmarks report; raise it for the
-    # multi-threaded regime and report the two separately.
+    # Threads per simulator.
     threads: int = 1
-    # Probability of the single-qubit depolarizing channel the ``noise`` mode
-    # applies after every gate, on each wire the gate acts on.
+    # Per-gate depolarizing probability in noise mode.
     depolarizing: float = 0.01
     precision: float = 1.0e-8
     optimal_config: bool = False
-    # Whether jaqsi_pulse solves single-term pulses in closed form, integrating
-    # only the scalar pulse area.  ``False`` makes it integrate the matrix ODE
-    # like the other pulse backends; gate-level simulators are unaffected.
+    # Use a closed-form solve for eligible JAQSI pulses.
     closed_form: bool = True
-    # jaqsi pulse envelope of the driven rotations at pulse level, ``gaussian``
-    # or ``drag``, which pulse_model transcribes for the other pulse backends.
-    # The Gaussian drives a single quadrature, so ``closed_form`` covers every
-    # pulse; DRAG adds a derivative quadrature, whose rotations always take the
-    # matrix ODE.  Gate-level simulators are unaffected.
+    # Driven-rotation pulse envelope.
     envelope: str = "gaussian"
     circuit: CircuitConfig = field(default_factory=CircuitConfig)
     qubits: QubitsConfig = field(default_factory=QubitsConfig)

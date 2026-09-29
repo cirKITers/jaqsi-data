@@ -1,56 +1,35 @@
-# Pulse-level benchmark configuration
+# Pulse-level benchmark.
 seed: 1000
 warmup: true
-# Pulse results carry the ODE solver error of each backend, so the
-# cross-validation tolerance is set by the solver rather than by machine
-# precision.  The error accumulates over the $21 n$ solves the schedule runs in
-# sequence, and expval amplifies it because it sums $2^n$ probabilities: at 8
-# qubits the full-register path deviates by $1.2 \cdot 10^{-6}$ there against
-# $3 \cdot 10^{-8}$ in probs.  This tolerance covers the sweep up to
-# ``qubits.max``; a wider one needs more headroom.
+# Cross-validation tolerance for pulse solvers.
 precision: 1.0e-5
 
-# Use performance-optimized simulator configurations.  For pennylane this
-# integrates the segments with jax.experimental.ode directly instead of going
-# through ParametrizedEvolution, whose per-operation overhead costs about
-# 190 ms per segment and otherwise dominates the whole run.
+# Use optimized simulator configurations.
 optimal_config: true
 
-# Pulse envelope of the driven rotations.  The Gaussian drives a single
-# quadrature, so under the RWA every pulse is a single-term drive that jaqsi
-# can solve in closed form, and this run differs from pulse-ode.yaml only in
-# that solve.  `drag` adds a derivative quadrature, which makes RY a two-term
-# drive that always takes the matrix ODE.
+# Driven-rotation pulse envelope.
 envelope: gaussian
 
-# Threads every simulator is pinned to, before any numerical library is
-# imported.  One is the single-thread regime the Yao, Qulacs and JuliVQC
-# benchmarks report; set it to the core count for the multi-threaded regime and
-# report the two separately.  Without this, qibojit silently takes one thread
-# per available core while nothing else is pinned.
+# Threads per simulator.
 threads: 1
 
-# The pulse model only transcribes the Hadamard and CRX decompositions, so the
-# pulse benchmark runs the crx_ring family.  Each additional layer adds another
-# 21 n sequential ODE solves, which is why the depth sweep stays at one layer.
+# Circuit family and depths to sweep.
 circuit:
   family: crx_ring
   layers:
     - 1
 
-# Qubit sweep range (inclusive).  The schedule has 21 segments per qubit, each
-# solved sequentially, so the runtime grows faster than in the gate benchmark.
+# Inclusive qubit range.
 qubits:
   min: 2
   max: 8
 
-# Execution settings
+# Iterations and batch size.
 execution:
   n_iters: 20
   batch_size: 2
 
-# Which measurement modes to benchmark.  The pulse level measures forward
-# simulation only; `grad` is a gate-level mode.
+# Workloads to benchmark.
 modes:
   - expval
   # - state
@@ -58,16 +37,15 @@ modes:
   # - probs
   - noise
 
-# Which simulators to run (subset of: jaqsi_pulse, pennylane_pulse,
-# qutip_pulse, dynamiqs_pulse)
+# Pulse simulators to benchmark.
 simulators:
   - jaqsi_pulse
   - pennylane_pulse
   - qutip_pulse
   - dynamiqs_pulse
 
-# Output settings
+# Output location and run identifier.
 output:
   dir: results
-  # Set a fixed identifier to resume a previous run; null generates a timestamp
+  # Use a fixed identifier to resume a run.
   identifier: null

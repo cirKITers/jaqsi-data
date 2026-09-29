@@ -1,18 +1,4 @@
-# Benchmark runs on a fixed slice of the host.
-#
-# The repository is bind-mounted at /app, so a run uses the checkout on this
-# machine and writes its CSVs, plots and traces back into it.  Values come from
-# .env; see .env.example.
-#
-#   docker compose build
-#   docker compose run --rm benchmark                     # single-thread regime
-#   docker compose run --rm benchmark threads=240         # multi-threaded regime
-#   docker compose run --rm benchmark-pulse
-#   docker compose run --rm profiling
-#   docker compose run --rm tests
-#
-# Arguments after the service name are appended to the entrypoint, so every
-# override under Usage in the README works: `run --rm benchmark qubits.max=12`.
+# Run benchmarks and profiling on the host slice set in .env.
 
 x-slice: &slice
   build:
@@ -25,16 +11,10 @@ x-slice: &slice
   volumes:
     - .:/app
 
-  # The only host CPUs that may run the container, and the set `benchmark.threads`
-  # pins within: pin_threads takes its cores from what the process is already
-  # permitted.  A CPU quota would not do -- it throttles the container but leaves
-  # its affinity mask covering the whole machine, so the simulators would size
-  # their thread pools from the full core count.  Generate the value with
-  # scripts/pick_cpuset.py.
+  # Allowed host CPUs; generate with scripts/pick_cpuset.py.
   cpuset: "${BENCH_CPUSET:?set BENCH_CPUSET in .env; run scripts/pick_cpuset.py first}"
 
-  # Reservation, hard ceiling and swap limit at once, so the container gets this
-  # much, no more, and never swaps: a swapped-out page reads as a timing outlier.
+  # Reserve and cap memory without swap.
   mem_reservation: "${BENCH_MEM:?set BENCH_MEM in .env, e.g. 4096g}"
   mem_limit: "${BENCH_MEM:?set BENCH_MEM in .env, e.g. 4096g}"
   memswap_limit: "${BENCH_MEM:?set BENCH_MEM in .env, e.g. 4096g}"
@@ -47,8 +27,7 @@ services:
   benchmark:
     <<: *slice
 
-  # The config goes in the entrypoint, not in `command`, because
-  # `docker compose run SERVICE ARGS` replaces the command and would drop it.
+  # Use the pulse benchmark config.
   benchmark-pulse:
     <<: *slice
     entrypoint:
@@ -58,7 +37,6 @@ services:
     <<: *slice
     entrypoint: ["python", "-m", "profiling"]
 
-  # On the same slice, so the cross-validation runs under the same pinning.
   tests:
     <<: *slice
     entrypoint: ["python", "-m", "pytest"]
