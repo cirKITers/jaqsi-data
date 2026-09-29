@@ -336,6 +336,7 @@ def run_benchmarks(cfg: BenchmarkConfig) -> Path:
     from benchmark.simulators.jaqsi_pulse_sim import JaqsiPulseBenchmark
 
     JaqsiPulseBenchmark.closed_form = cfg.closed_form
+    SimulatorBenchmark.envelope = cfg.envelope
 
     # Compute selected references first, independently of the requested order.
     simulators.sort(key=lambda sim: sim.name not in REFERENCE_BY_LEVEL.values())

@@ -18,9 +18,16 @@ precision: 1.0e-5
 # 190 ms per segment and otherwise dominates the whole run.
 optimal_config: true
 
-# Under the RWA every pulse is a single-term drive $f(t) H$, which jaqsi solves
-# in closed form as $e^{-i F H}$, integrating only the scalar pulse area $F$.
-# Switching that off makes jaqsi_pulse integrate the matrix ODE
+# Pulse envelope of the driven rotations.  The Gaussian drives a single
+# quadrature, so under the RWA every pulse is a single-term drive that jaqsi
+# can solve in closed form, and this run differs from pulse.yaml only in
+# that solve.  `drag` adds a derivative quadrature, which makes RY a two-term
+# drive that always takes the matrix ODE.
+envelope: gaussian
+
+# Under the RWA every Gaussian pulse is a single-term drive $f(t) H$, which
+# jaqsi solves in closed form as $e^{-i F H}$, integrating only the scalar pulse
+# area $F$.  Switching that off makes jaqsi_pulse integrate the matrix ODE
 # $\mathrm{d}U/\mathrm{d}t = -i f(t) H U$ like PennyLane, QuTiP and dynamiqs.
 # The simulator is still labelled jaqsi_pulse, so the setting is recorded in
 # the provenance sidecar and an auto-generated identifier gets an `-ode` suffix.

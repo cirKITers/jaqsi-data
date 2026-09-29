@@ -80,6 +80,7 @@ def record_provenance(
             "precision",
             "optimal_config",
             "closed_form",
+            "envelope",
             "depolarizing",
         )
     }

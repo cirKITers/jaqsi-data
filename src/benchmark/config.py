@@ -65,6 +65,10 @@ ALL_SIMULATORS: List[str] = [
 ]
 
 
+# jaqsi pulse envelopes ``pulse_model`` transcribes.
+PULSE_ENVELOPES: List[str] = ["gaussian", "drag"]
+
+
 @dataclass
 class BenchmarkConfig:
     seed: int = 1000
@@ -82,6 +86,12 @@ class BenchmarkConfig:
     # only the scalar pulse area.  ``False`` makes it integrate the matrix ODE
     # like the other pulse backends; gate-level simulators are unaffected.
     closed_form: bool = True
+    # jaqsi pulse envelope of the driven rotations at pulse level, ``gaussian``
+    # or ``drag``, which pulse_model transcribes for the other pulse backends.
+    # The Gaussian drives a single quadrature, so ``closed_form`` covers every
+    # pulse; DRAG adds a derivative quadrature, whose rotations always take the
+    # matrix ODE.  Gate-level simulators are unaffected.
+    envelope: str = "gaussian"
     circuit: CircuitConfig = field(default_factory=CircuitConfig)
     qubits: QubitsConfig = field(default_factory=QubitsConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
@@ -146,6 +156,8 @@ def load_config(
         # keeps their results apart.
         if not cfg.closed_form:
             cfg.output.identifier += "-ode"
+        if cfg.envelope != "gaussian":
+            cfg.output.identifier += f"-{cfg.envelope}"
 
     # Validate simulator names
     unknown = set(cfg.simulators) - set(ALL_SIMULATORS)
@@ -165,6 +177,11 @@ def load_config(
         raise ValueError(
             f"circuit.layers must be a non-empty list of positive integers, "
             f"got {cfg.circuit.layers}"
+        )
+
+    if cfg.envelope not in PULSE_ENVELOPES:
+        raise ValueError(
+            f"Unknown envelope: {cfg.envelope!r}. Available: {PULSE_ENVELOPES}"
         )
 
     if cfg.threads < 1:
