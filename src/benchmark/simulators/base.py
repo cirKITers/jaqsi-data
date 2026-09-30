@@ -143,12 +143,13 @@ class SimulatorBenchmark(ABC):
 
         self.setup(spec, mode, optimal_config=optimal_config)
 
+        # Collect before the warmup
+        gc.collect()
         if do_warmup:
             jax.block_until_ready(self.warmup(all_inputs[-1], all_weights[-1]))
 
         times: list[float] = []
         result = None
-        gc.collect()
         gc_was_enabled = gc.isenabled()
         gc.disable()
         try:
