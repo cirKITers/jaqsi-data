@@ -273,7 +273,7 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
 
     rows = -(-len(labels) // (5 if fig.get_figwidth() < 5 else 8))
     ncol = -(-len(labels) // rows)
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.065 * rows))
+    fig.tight_layout(rect=(0, 0, 1, 1 - (0.181 * rows + 0.08) / fig.get_figheight()))
     fig.legend(
         handles,
         labels,
