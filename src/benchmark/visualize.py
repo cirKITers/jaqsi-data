@@ -25,9 +25,11 @@ REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 # Up to four modes keep the paper figures one column wide.  Set to None to plot
 # every mode present in the results file.  ``grad`` is included so the gradient
 # workload is plotted alongside the forward ones; a pulse-level file has no
-# such rows and simply drops the panel.  ``noise`` sits next to ``density``,
-# whose output it shares without the state-vector shortcut.
-PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "density", "noise", "grad")
+# such rows and simply drops the panel.  Four panels wrap into a 2x2 grid that
+# is filled row-wise, so ``expval`` and ``grad`` share the first row, while
+# ``noise`` sits next to ``density``, whose output it shares without the
+# state-vector shortcut.
+PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "grad", "density", "noise")
 
 # Former simulator names found in older result files, mapped to their current
 # name so that old and new results share one label and colour.
