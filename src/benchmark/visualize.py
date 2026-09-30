@@ -31,8 +31,8 @@ REFERENCE_PREFERENCE = (REFERENCE_SIMULATOR, "jaqsi_pulse")
 # state-vector shortcut.
 PLOT_MODES: Optional[Tuple[str, ...]] = ("expval", "grad", "density", "noise")
 
-# Former simulator names found in older result files, mapped to their current
-# name so that old and new results share one label and colour.
+PULSE_TIMING_MODES: Tuple[str, ...] = ("expval", "noise")
+
 LEGACY_SIMULATOR_NAMES: Dict[str, str] = {"pennylane_adjoint": "pennylane_lightning"}
 
 
@@ -315,12 +315,20 @@ def _label_axes(axes, ylabel: str) -> None:
 # Plotting
 # ------------------------------------------------------------------
 
-def _select_modes(results: Dict[str, ModeResults]) -> Dict[str, ModeResults]:
-    """Drop modes not listed in :data:`PLOT_MODES`."""
+def _select_modes(
+    results: Dict[str, ModeResults], *, timing: bool = False
+) -> Dict[str, ModeResults]:
+    """Drop modes not listed in :data:`PLOT_MODES`.
+
+    With *timing*, a pulse-level result keeps only :data:`PULSE_TIMING_MODES`.
+    """
     if PLOT_MODES is None:
         return results
-    # Panels follow the PLOT_MODES order, not the order found in the CSV.
-    return {m: results[m] for m in PLOT_MODES if m in results}
+    modes = PLOT_MODES
+    if timing and _pick_reference(results) != REFERENCE_SIMULATOR:
+        modes = PULSE_TIMING_MODES
+    # Panels follow the mode order above, not the order found in the CSV.
+    return {m: results[m] for m in modes if m in results}
 
 
 def _infidelity_series(
@@ -374,7 +382,7 @@ def plot_ratio(
     non-reference simulator is drawn with a distinct colour.  When *reference*
     is omitted it is taken from the simulators present in *results*.
     """
-    results = _select_modes(results)
+    results = _select_modes(results, timing=True)
     n_modes = len(results)
     if n_modes == 0:
         logger.warning("No results to plot.")
@@ -455,7 +463,7 @@ def plot_absolute(
     Within each subplot every simulator is drawn with a distinct
     colour.
     """
-    results = _select_modes(results)
+    results = _select_modes(results, timing=True)
     n_modes = len(results)
     if n_modes == 0:
         logger.warning("No results to plot.")
