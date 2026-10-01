@@ -472,7 +472,7 @@ def plot_absolute(
     with plt.rc_context(PLOT_RC):
         fig, axes = plt.subplots(
             *_grid(n_modes), figsize=_figsize(n_modes),
-            sharey=True, squeeze=False,
+            sharey="row", squeeze=False,
         )
         axes = axes.flatten()
 
