@@ -347,7 +347,7 @@
         },
         "precision": 1e-05,
         "qubits": {
-          "max": 8,
+          "max": 11,
           "min": 2
         },
         "seed": 1000,
