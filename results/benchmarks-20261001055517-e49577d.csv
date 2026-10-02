@@ -130,3 +130,4 @@ crx_ring,1,12,density,dynamiqs_pulse,380.609692,4.946736,2,20,1,5.151435e-14
 crx_ring,1,12,noise,jaqsi_pulse,31218.875977,55.420959,2,20,1,4.873879e-14
 crx_ring,1,12,noise,pennylane_pulse,260794.581007,540.340357,2,20,1,4.951595e-14
 crx_ring,1,12,noise,qutip_pulse,568236.889608,294.678737,2,20,1,5.140333e-14
+crx_ring,1,12,noise,dynamiqs_pulse,344618.570805,1316.524731,2,20,1,5.084821e-14
