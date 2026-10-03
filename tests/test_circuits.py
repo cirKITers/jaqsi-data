@@ -1,8 +1,4 @@
-"""Tests for the backend-agnostic circuit specifications.
-
-Every adapter builds its circuit from a :class:`CircuitSpec`, so the parameter
-bookkeeping here is what keeps all simulators executing the same circuit.
-"""
+"""Test circuit operations and parameter indexing shared by adapters."""
 
 from __future__ import annotations
 
@@ -97,16 +93,14 @@ class TestParameterCounts:
 
 
 class TestKnownAnsatzProperties:
-    """Properties of `hea` that the timings and the gradient depend on."""
+    """Check ansatz details that affect observables and gradients."""
 
     @pytest.mark.parametrize("n_layers", [1, 2, 3])
     def test_last_block_ends_on_rx(self, n_layers):
-        """No weight may sit in a position that cannot move the observable.
+        """Omit the final RZ, whose Pauli-Z gradient would be zero.
 
-        A trailing RZ could not change a Pauli-Z expectation value: it only
-        adds phases, and the CNOT ring after it permutes the computational
-        basis.  Following Yao and Qulacs, the last block is RZ-RX, so every
-        weight has a non-zero gradient.
+        The following CNOT ring only permutes computational basis states, so a
+        trailing RZ cannot change the observable.
         """
         n_qubits = 4
         spec = build_spec("hea", n_qubits, n_layers)
@@ -115,7 +109,7 @@ class TestKnownAnsatzProperties:
         assert [op.gate for op in last_block] == ["RZ", "RX"] * n_qubits
 
     def test_first_block_keeps_its_leading_rz(self):
-        """The encoding layer rotates off the Z axis, so a leading RZ acts."""
+        """Keep the first RZ after data encoding rotates off the Z axis."""
         spec = build_spec("hea", 4, 3)
         weight_ops = [op for op in spec.ops if op.source == "weights"]
         assert weight_ops[0].gate == "RZ"
@@ -145,7 +139,7 @@ class TestAngleLookup:
                 assert angle(op, inputs, weights) == 10 * op.index
 
     def test_indexes_the_last_axis_of_a_batch(self):
-        """Adapters relying on their own broadcasting pass a whole batch."""
+        """Read batched angles from the final parameter axis."""
         spec = build_spec("hea", 2, 1)
         batch = np.tile(np.arange(spec.n_inputs), (3, 1))
         weights = np.zeros(spec.n_weights)
@@ -157,7 +151,7 @@ class TestAngleLookup:
 
 
 class TestDepolarizing:
-    """The noise mode's channels are ops in the spec, like the gates."""
+    """Check that noise channels appear in the circuit operation list."""
 
     @pytest.mark.parametrize("family", _FAMILIES)
     def test_noise_free_by_default(self, family):

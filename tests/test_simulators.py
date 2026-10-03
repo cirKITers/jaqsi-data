@@ -1,9 +1,6 @@
-"""Tests for simulator benchmark adapters.
+"""Test adapter output shapes and mathematical properties.
 
-These tests verify that every simulator adapter produces outputs with the
-correct shape and basic mathematical properties (normalisation, valid
-ranges, hermiticity, etc.).  They are simulator-agnostic: each test is
-parametrised over all available backends.
+Run the same checks across available backends.
 """
 
 from __future__ import annotations
@@ -64,7 +61,7 @@ _FAMILIES = ["crx_ring", "hea"]
 # ---------------------------------------------------------------------------
 
 class TestSimulatorImport:
-    """Verify that every simulator is importable via the lazy __init__."""
+    """Check lazy imports for every adapter."""
 
     def test_lazy_import_pennylane(self):
         from benchmark.simulators import PennylaneBenchmark
@@ -248,7 +245,7 @@ class TestUnsupportedMode:
 # ---------------------------------------------------------------------------
 
 class TestHarnessIntegration:
-    """Verify every simulator works with the base-class benchmark() method."""
+    """Check each adapter with the shared timing harness."""
 
     @staticmethod
     def _make_sweep(spec, n_iters: int = 3, batch_size: int = 1):
@@ -294,7 +291,7 @@ class TestHarnessIntegration:
 # ---------------------------------------------------------------------------
 
 class TestConfigIntegration:
-    """Verify all simulators are accepted by the configuration system."""
+    """Check that configuration accepts every adapter."""
 
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
     def test_all_simulators_in_config(self, sim_cls):
@@ -314,7 +311,7 @@ class TestConfigIntegration:
 # ---------------------------------------------------------------------------
 
 class TestOptimalConfigEquivalence:
-    """optimal_config must not change numerical results, only performance."""
+    """Require optimized and default configurations to agree numerically."""
 
     @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _ALL_SIMULATORS)
@@ -359,17 +356,15 @@ class TestOptimalConfigEquivalence:
 # ---------------------------------------------------------------------------
 
 class TestQiboThreading:
-    """Qibo is the one backend that has to be pinned after construction.
+    """Check Qibo thread pinning after backend construction.
 
-    ``optimal_config`` selects qibojit in every mode and the default
-    configuration numpy, so that flag decides which backend is under test.
+    ``optimal_config`` selects qibojit; the default selects NumPy.
     """
 
     def test_numpy_backend_accepts_a_multi_thread_pinning(self, monkeypatch):
-        """The numpy backend rejects set_threads above one, so it is skipped.
+        """Skip ``set_threads`` for the NumPy backend above one thread.
 
-        Without that guard, every multi-threaded run of the default
-        configuration fails during setup rather than producing a measurement.
+        NumPy rejects that call during setup.
         """
         monkeypatch.setenv("OMP_NUM_THREADS", "4")
         sim = QiboBenchmark()

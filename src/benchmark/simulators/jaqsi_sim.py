@@ -14,10 +14,10 @@ from benchmark.simulators.base import SimulatorBenchmark, Mode
 
 
 def build_circuit(spec: CircuitSpec, *, pulse: bool = False) -> Callable:
-    """Return the jaqsi circuit function of *spec*.
+    """Build the jaqsi circuit from ``spec``.
 
-    The gate- and pulse-level adapters differ only in the ``pulse`` flag they
-    hand to the gate constructors, so both build their circuit here.
+    The gate and pulse adapters share this builder and select gates with the
+    ``pulse`` flag.
     """
 
     def circuit(inputs: jnp.ndarray, weights: jnp.ndarray) -> None:
@@ -67,11 +67,9 @@ class JaqsiBenchmark(SimulatorBenchmark):
         self._run_fn = self._make_run_fn(spec, mode)
 
     def _make_run_fn(self, spec: CircuitSpec, mode: Mode) -> Callable:
-        """Return the batched execution function for *mode*.
+        """Build the batched execution function for ``mode``.
 
-        The batch axis sits on ``inputs`` while ``weights`` are broadcast, so
-        the vmapped kernel evaluates one parameter set against a batch of data
-        rather than a batch of unrelated circuits.
+        Vectorize over ``inputs`` while sharing ``weights`` across the batch.
         """
         script = self._script
         obs = [PauliZ(wires=i, record=False) for i in range(spec.n_qubits)]

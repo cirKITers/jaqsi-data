@@ -1,12 +1,7 @@
-"""Cross-validation tests for the pulse-level simulator adapters.
+"""Cross-validate pulse adapters against JAQSI pulse output.
 
-Every pulse adapter integrates the same schedule, so all of them are compared
-against jaqsi_pulse, in both the default and the optimized configuration: the
-two differ in the dimension of the integrated ODE and are benchmarked
-separately, so both have to reproduce the reference.  The tolerance reflects
-the accumulated ODE solver error rather than machine precision, and the qubit
-counts are kept small because pennylane spends roughly 190 ms on each of the
-21 segments per qubit.
+Check both full-register and local-propagator configurations. Use solver
+tolerance and small qubit counts because pulse integration is costly.
 """
 
 from __future__ import annotations
@@ -78,7 +73,7 @@ def reference():
 # ------------------------------------------------------------------
 
 class TestPulseCrossValidation:
-    """Compare every pulse simulator against jaqsi_pulse for every mode."""
+    """Compare every pulse adapter with JAQSI in each mode."""
 
     @pytest.mark.parametrize("optimal", [False, True], ids=["default", "optimal"])
     @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
@@ -123,7 +118,7 @@ _OPTIMAL_CONFIG_SIMULATORS = [
 
 
 class TestPulseOptimalConfigEquivalence:
-    """optimal_config must not change numerical results, only performance."""
+    """Require optimized and default pulse results to agree."""
 
     @pytest.mark.parametrize("sim_cls, tolerance", _OPTIMAL_CONFIG_SIMULATORS)
     @pytest.mark.parametrize("mode", MODES)
@@ -142,10 +137,9 @@ class TestPulseOptimalConfigEquivalence:
 
 
 class TestPulseDragCrossValidation:
-    """Two-term DRAG pulses agree across all pulse simulators.
+    """Compare nonzero DRAG quadrature across pulse adapters.
 
-    Runs at a non-zero DRAG weight, as the calibrated one leaves the
-    quadrature term numerically silent.
+    The calibrated weight is zero, so this check supplies a nonzero weight.
     """
 
     @pytest.mark.parametrize("optimal", [False, True], ids=["default", "optimal"])
@@ -165,7 +159,7 @@ class TestPulseDragCrossValidation:
 
 
 class TestJaqsiPulseMatrixOde:
-    """Without the closed-form solve jaqsi_pulse integrates the matrix ODE."""
+    """Check JAQSI pulse results using matrix ODE integration."""
 
     @pytest.mark.parametrize("mode", MODES)
     def test_matches_closed_form(self, reference, mode, monkeypatch):
@@ -201,7 +195,7 @@ def noisy_reference():
 
 
 class TestPulseNoise:
-    """Every pulse simulator evolves the same noisy density matrix."""
+    """Compare noisy density matrices across pulse adapters."""
 
     @pytest.mark.parametrize("optimal", [False, True], ids=["default", "optimal"])
     @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
@@ -234,7 +228,7 @@ class TestPulseNoise:
 # ------------------------------------------------------------------
 
 class TestPulseRegistry:
-    """The runner resolves pulse adapters and their reference correctly."""
+    """Check pulse adapter registration and reference selection."""
 
     @pytest.mark.parametrize(
         "name",
@@ -260,7 +254,7 @@ class TestPulseRegistry:
 
 
 class TestPulseSupport:
-    """The pulse adapters only accept what the pulse model transcribes."""
+    """Require pulse adapters to reject unsupported circuit families."""
 
     @pytest.mark.parametrize(
         "sim_cls", _OTHER_SIMULATORS + [pytest.param(JaqsiPulseBenchmark, id="jaqsi_pulse")]

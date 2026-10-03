@@ -11,7 +11,7 @@ from benchmark.config import load_config, BenchmarkConfig
 
 
 class TestLoadConfigDefaults:
-    """Loading with no arguments should produce sensible defaults."""
+    """Check defaults when no overrides are supplied."""
 
     def test_returns_benchmark_config(self):
         cfg = load_config()
@@ -23,11 +23,7 @@ class TestLoadConfigDefaults:
         assert cfg.qubits.max >= cfg.qubits.min
 
     def test_default_modes_are_valid(self):
-        """The shipped modes are tuned between runs, so check the invariant.
-
-        Pinning the exact list makes this fail every time a mode is commented
-        out of the config, which says nothing about correctness.
-        """
+        """Validate shipped modes without fixing their exact list."""
         from benchmark.simulators.base import Mode
         import typing
 
@@ -82,7 +78,7 @@ class TestLoadConfigDefaults:
 
 
 class TestLoadConfigOverrides:
-    """CLI-style dot-list overrides should take precedence."""
+    """Check that dot-list overrides take precedence."""
 
     def test_batch_not_divisible_by_threads_warns(self, caplog):
         with caplog.at_level("WARNING"):
@@ -117,14 +113,13 @@ class TestLoadConfigOverrides:
 
 
 class TestLoadConfigSimulators:
-    """The `simulators` field should filter which backends are run."""
+    """Check simulator selection and validation."""
 
     def test_default_simulators_are_known(self):
-        """The shipped list is tuned between runs, so check the invariant.
+        """Validate shipped simulators without fixing their exact list.
 
-        jaqsi has to be present because every other simulator is
-        cross-validated against it.  pennylane_psr is deliberately absent: the
-        parameter-shift rule is far too slow to run at every size.
+        JAQSI must be present as the cross-validation reference; the slow
+        parameter-shift backend is omitted from the default sweep.
         """
         from benchmark.config import ALL_SIMULATORS
 
@@ -161,7 +156,7 @@ class TestLoadConfigSimulators:
 
 
 class TestLoadConfigYaml:
-    """A custom YAML file should be loadable and mergeable."""
+    """Check loading and merging a custom YAML configuration."""
 
     def test_custom_yaml(self, tmp_path: Path):
         yaml_file = tmp_path / "custom.yaml"
@@ -224,7 +219,7 @@ class TestThreadsConfig:
     """The thread count is validated at load time and pins the whole process."""
 
     def test_default_thread_count_is_positive(self):
-        """The shipped count is tuned between runs, so check the invariant."""
+        """Require a positive default thread count without fixing its value."""
         cfg = load_config()
         assert isinstance(cfg.threads, int)
         assert cfg.threads >= 1

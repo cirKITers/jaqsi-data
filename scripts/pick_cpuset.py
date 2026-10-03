@@ -1,27 +1,11 @@
 #!/usr/bin/env python3
-"""Pick a ``BENCH_CPUSET`` for docker-compose.yml from the host's topology.
+"""Select a benchmark CPU set from host topology.
 
-Run this on the machine the benchmark will run on, since the answer depends on
-that machine's core numbering::
-
-    lscpu -e=CPU,CORE,SOCKET,NODE | python3 scripts/pick_cpuset.py --cpus 256
-
-Three properties of the selection matter for the timings, and none of them is
-visible in a range typed from the core count:
-
-* Whole physical cores.  With SMT on, a core's siblings share execution units,
-  so a cpuset holding one sibling and leaving the other to the rest of a shared
-  machine measures the neighbour's load as much as the simulator.  Siblings are
-  rarely adjacent -- a machine numbering them ``n`` and ``n + cores`` puts them
-  half the CPU space apart -- so a contiguous range is usually the wrong answer.
-* As few NUMA nodes as possible.  A statevector spread across nodes pays
-  remote-memory latency on every gate.
-* Whole nodes, under ``--whole-nodes``.  A partially taken node shares its
-  memory bandwidth with whatever else the shared machine puts on the rest of it,
-  which is the one thing a cpuset cannot fix.
-
-Needs no dependencies beyond the standard library, so it runs against the
-system python before ``uv sync``.
+Run on the benchmark host with
+``lscpu -e=CPU,CORE,SOCKET,NODE | python3 scripts/pick_cpuset.py --cpus 256``.
+Selection keeps SMT siblings together and uses as few NUMA nodes as
+possible; ``--whole-nodes`` excludes partial nodes. The script uses only
+the standard library.
 """
 
 from __future__ import annotations
@@ -36,12 +20,9 @@ Cores = Dict[Tuple[int, int, int], List[int]]
 
 
 def parse_topology(lines: Iterable[str]) -> Cores:
-    """Group CPUs by physical core, from ``lscpu -e`` or ``lscpu -p`` output.
+    """Group CPUs by physical core from ``lscpu -e`` or ``-p`` output.
 
-    Both layouts are accepted: ``-p`` is comma-separated with ``#`` comments,
-    ``-e`` is whitespace-aligned with a header row.  Any row whose first four
-    fields are not all numeric is skipped, which covers the comments, the
-    header, and the dashes ``lscpu -e --all`` prints for an offline CPU.
+    Skip headers, comments, and rows with nonnumeric topology fields.
     """
     cores: Cores = defaultdict(list)
     for line in lines:
@@ -67,7 +48,7 @@ def parse_topology(lines: Iterable[str]) -> Cores:
 
 
 def compress(cpus: Iterable[int]) -> str:
-    """Render a CPU list in the range syntax docker's ``--cpuset-cpus`` takes."""
+    """Format CPU indices as Docker ``--cpuset-cpus`` ranges."""
     ordered = sorted(cpus)
     if not ordered:
         return ""
@@ -84,12 +65,10 @@ def compress(cpus: Iterable[int]) -> str:
 def by_node(
     cores: Cores, exclude: Iterable[int], whole_nodes: bool = False
 ) -> Dict[int, List[List[int]]]:
-    """Map each NUMA node to its physical cores, dropping the excluded ones.
+    """Group eligible physical cores by NUMA node.
 
-    A core holding an excluded CPU is dropped whole rather than half-taken, so
-    leaving CPU 0 to the host costs its sibling too.  Under *whole_nodes* the
-    node that core belongs to goes with it: a node missing one core is a partial
-    node, which is what that mode exists to avoid.
+    Excluding one sibling excludes its core; ``whole_nodes`` also excludes
+    its node.
     """
     excluded = set(exclude)
     grouped: Dict[int, List[List[int]]] = defaultdict(list)
@@ -108,11 +87,10 @@ def by_node(
 def select(
     nodes: Dict[int, List[List[int]]], want: int, whole_nodes: bool
 ) -> List[int]:
-    """Choose up to *want* logical CPUs as whole cores from as few nodes as possible.
+    """Select up to ``want`` logical CPUs using whole cores and few nodes.
 
-    A core is only taken if it fits within *want*, so the result never overshoots
-    the allocation; it can fall short by less than one core, or under
-    *whole_nodes* by less than one node, which the caller reports.
+    Never exceed ``want``. A partial core or, with ``whole_nodes``, a partial
+    node may leave the selection short.
     """
     capacity = {node: sum(len(c) for c in cs) for node, cs in nodes.items()}
 
@@ -148,7 +126,7 @@ def select(
 def report(
     cores: Cores, nodes: Dict[int, List[List[int]]], chosen: Sequence[int], want: int
 ) -> None:
-    """Print the selection, the machine it came from, and the whole-node sizes."""
+    """Print the CPU selection, host identity, and whole-node sizes."""
     picked = set(chosen)
     total = sum(len(c) for c in cores.values())
     all_nodes = {node for node, _s, _c in cores}

@@ -1,4 +1,1 @@
-"""JAQSI JAX/Perfetto profiling package.
-
-Import submodules directly, e.g. ``from profiling.profiler import JaqsiProfiler``.
-"""
+"""JAQSI profiling tools; import classes from their submodules."""

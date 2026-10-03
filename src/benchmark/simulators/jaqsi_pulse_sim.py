@@ -10,12 +10,10 @@ from benchmark.simulators.jaqsi_sim import JaqsiBenchmark
 
 
 class JaqsiPulseBenchmark(JaqsiBenchmark):
-    """Runs the benchmark circuit through jaqsi's pulse-level gate set.
+    """Run the benchmark circuit with jaqsi pulse gates.
 
-    Only the circuit construction differs from the gate-level adapter: each
-    gate expands into the pulse schedule transcribed in
-    :mod:`benchmark.simulators.pulse_model`, which the other pulse adapters
-    integrate themselves.
+    The gate-level adapter shares the same circuit builder. Pulse gates expand
+    into the schedule transcribed in :mod:`benchmark.simulators.pulse_model`.
     """
 
     name = "jaqsi_pulse"

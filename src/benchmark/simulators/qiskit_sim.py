@@ -1,8 +1,4 @@
-"""Qiskit simulator benchmark adapter.
-
-Uses Qiskit's local statevector / density-matrix simulation
-(no external provider or API key required).
-"""
+"""Benchmark Qiskit statevector and density matrix simulators locally."""
 
 from __future__ import annotations
 
@@ -29,7 +25,7 @@ from benchmark.threads import num_threads
 def _build_circuit(
     spec: CircuitSpec,
 ) -> Tuple[QuantumCircuit, ParameterVector, ParameterVector]:
-    """Return the parametric circuit of *spec* and its two parameter vectors."""
+    """Build the parametric circuit and its input and weight parameters."""
     x = ParameterVector("x", spec.n_inputs)
     w = ParameterVector("w", spec.n_weights)
     vectors = {"inputs": x, "weights": w}
@@ -89,7 +85,7 @@ class QiskitBenchmark(SimulatorBenchmark):
         self._run_fn = self._make_run_fn(mode, spec.n_qubits, optimal_config)
 
     def _bindings(self, sample: np.ndarray, weights: np.ndarray) -> Dict:
-        """Map one sample and the shared weights onto the circuit parameters."""
+        """Bind one input sample and shared weights to circuit parameters."""
         binding = {self._x[i]: float(v) for i, v in enumerate(sample)}
         binding.update({self._w[i]: float(v) for i, v in enumerate(weights)})
         return binding
@@ -97,7 +93,7 @@ class QiskitBenchmark(SimulatorBenchmark):
     def _make_run_fn(
         self, mode: Mode, n_qubits: int, optimal_config: bool
     ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
-        """Return a callable that maps a batch of inputs to results."""
+        """Build a function that executes a batch of inputs."""
 
         # Pre-compute the endian-reversal index permutation once.
         perm = _endian_reverse_indices(n_qubits)
@@ -177,17 +173,11 @@ class QiskitBenchmark(SimulatorBenchmark):
     def _make_aer_run_fn(
         self, mode: Mode, n_qubits: int, perm: np.ndarray
     ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
-        """Return a run function backed by the qiskit-aer C++ simulator.
+        """Build a batched run function using the Aer C++ simulator.
 
-        Aer uses the same little-endian basis order as quantum_info, so the
-        endian-reversal permutation *perm* is applied identically.  The circuit
-        is transpiled once outside the timing loop and stays parameterized: the
-        batch goes to Aer in one ``run`` call with ``parameter_binds``, one
-        value per sample and parameter, so Aer binds the parameters itself
-        instead of Python building one circuit per sample.  Aer executes up to
-        one bound experiment per pinned thread in parallel: its native
-        counterpart of jaqsi splitting the batch over CPU devices.  See
-        https://qiskit.github.io/qiskit-aer/stubs/qiskit_aer.AerSimulator.html
+        Transpile once, then pass all samples through ``parameter_binds`` in one
+        call. Aer can run one bound experiment per pinned thread. Reverse basis
+        indices as in the other Qiskit path to match JAQSI's ordering.
         """
         method = "density_matrix" if mode in ("density", "noise") else "statevector"
         sim = AerSimulator(method=method, precision="double")
@@ -198,7 +188,7 @@ class QiskitBenchmark(SimulatorBenchmark):
         native = all(inst.operation.name != "crx" for inst in self._circuit.data)
 
         def run_batch(qc, inputs, weights) -> list:
-            """Run *qc* bound to every sample; one result data dict each."""
+            """Run ``qc`` for each input sample and return each result dictionary."""
             x = np.asarray(inputs)
             w = np.asarray(weights)
             batch = len(x)

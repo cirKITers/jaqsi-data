@@ -90,26 +90,10 @@ def load_config(
     config_path: Optional[str] = None,
     overrides: Optional[List[str]] = None,
 ) -> BenchmarkConfig:
-    """Load and merge benchmark configuration.
+    """Load and validate a resolved :class:`BenchmarkConfig`.
 
-    Resolution order (later wins):
-        1. Structured defaults from ``BenchmarkConfig``
-        2. YAML file (if *config_path* given)
-        3. CLI-style dot-list overrides (e.g. ``["qubits.max=10", "seed=42"]``)
-
-    Parameters
-    ----------
-    config_path:
-        Path to a YAML configuration file.  When *None* the built-in
-        ``configs/default.yaml`` shipped with the package is used.
-    overrides:
-        Optional list of dot-list overrides applied on top of the loaded
-        config.  Useful for quick command-line tweaks.
-
-    Returns
-    -------
-    BenchmarkConfig
-        Fully resolved, typed configuration object.
+    Merge structured defaults with the packaged YAML file, or ``config_path``
+    if given, then apply OmegaConf dot-list ``overrides`` last.
     """
     # 1. Structured defaults
     schema = OmegaConf.structured(BenchmarkConfig)

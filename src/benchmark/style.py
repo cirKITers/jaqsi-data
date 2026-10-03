@@ -1,8 +1,7 @@
-"""Shared figure style for benchmark plots.
+"""Define the shared benchmark plot style.
 
-Mirrors the ggplot2 ``theme_bw`` look used by the paper's R figures: a white
-panel with a full grey border, solid light-grey major/minor gridlines, a serif
-(Computer Modern) font, a horizontal top legend, and a fixed colour palette.
+Match the paper's ggplot2 ``theme_bw`` figures with a white panel, grey
+border and grid, Computer Modern font, top legend, and fixed colors.
 """
 
 from __future__ import annotations
@@ -79,7 +78,7 @@ PLOT_RC = {
 
 
 def style_axes(ax: plt.Axes) -> None:
-    """Apply the per-axis theme_bw touches rcParams cannot express."""
+    """Apply axis styling that rcParams cannot express."""
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
         spine.set_visible(True)

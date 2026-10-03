@@ -1,8 +1,4 @@
-"""Qulacs simulator benchmark adapter.
-
-Uses Qulacs' local statevector / density-matrix simulation for fast
-quantum circuit simulation (no external provider or API key required).
-"""
+"""Benchmark local Qulacs statevector and density matrix simulators."""
 
 from __future__ import annotations
 
@@ -32,23 +28,16 @@ _SIGN = -1.0
 
 
 def _rx_matrix(angle: float) -> np.ndarray:
-    """Return the 2×2 RX matrix using the standard convention.
-
-    Standard (textbook / PennyLane) convention:
-        RX(φ) = exp(-i φ/2 X) = [[cos(φ/2), -i·sin(φ/2)],
-                                  [-i·sin(φ/2), cos(φ/2)]]
-    """
+    r"""Return the standard $RX(\phi)=\exp(-i\phi X/2)$ matrix."""
     c = np.cos(angle / 2)
     s = np.sin(angle / 2)
     return np.array([[c, -1j * s], [-1j * s, c]])
 
 
 def _make_crx_gate(control: int, target: int, angle: float):
-    """Build a controlled-RX gate.
+    """Build controlled RX from a dense matrix.
 
-    Qulacs' special gates (like ``RX``) do not support
-    ``add_control_qubit``, so we create a ``DenseMatrix`` gate from
-    the explicit RX matrix and then attach the control qubit.
+    Qulacs special RX gates do not support ``add_control_qubit``.
     """
     mat = _rx_matrix(angle)
     crx = DenseMatrix(target, mat)
@@ -57,10 +46,9 @@ def _make_crx_gate(control: int, target: int, angle: float):
 
 
 def _angle(op: Op, sample: np.ndarray, weights: np.ndarray) -> float:
-    """Return the rotation angle of *op* as a Python float.
+    """Return an operation angle as a Python float.
 
-    Qulacs takes plain floats, so this is the numpy counterpart of
-    :func:`benchmark.circuits.angle`, which keeps array semantics.
+    This is the NumPy counterpart of :func:`benchmark.circuits.angle`.
     """
     vector = sample if op.source == "inputs" else weights
     return float(vector[op.index])
@@ -69,7 +57,7 @@ def _angle(op: Op, sample: np.ndarray, weights: np.ndarray) -> float:
 def _build_circuit(
     spec: CircuitSpec, sample: np.ndarray, weights: np.ndarray
 ) -> QuantumCircuit:
-    """Build the benchmark circuit of *spec* for one sample."""
+    """Build ``spec`` for one input sample."""
     circuit = QuantumCircuit(spec.n_qubits)
     for op in spec.ops:
         if op.gate == "H":
@@ -97,15 +85,12 @@ def _build_parametric_circuit(
     weights: np.ndarray,
     sources: Tuple[str, ...] = (),
 ) -> ParametricQuantumCircuit:
-    """Build *spec* with the rotations read from *sources* as parametric gates.
+    """Build a Qulacs parametric circuit from ``spec``.
 
-    ``ParametricQuantumCircuit.backprop`` returns one gradient per parametric
-    gate, so by default only the trainable rotations are registered as
-    parametric and the data-encoding ones stay fixed.  The gradients then come
-    back in exactly the order of the trainable vector.  With both vectors as
-    *sources* every rotation is parametric, so the circuit can be built once
-    and updated per sample through ``set_parameter``, in the order of
-    ``spec.ops``.
+    By default only trainable rotations are parametric, so ``backprop``
+    returns gradients in trainable-vector order. Passing both vectors in
+    ``sources`` makes all rotations parametric and supports updating the
+    circuit for each sample.
     """
     sources = sources or (spec.trainable,)
     circuit = ParametricQuantumCircuit(spec.n_qubits)
@@ -168,7 +153,7 @@ class QulacsBenchmark(SimulatorBenchmark):
     def _make_run_fn(
         self, spec: CircuitSpec, mode: Mode, optimal_config: bool
     ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
-        """Return a callable that maps a batch of inputs to results."""
+        """Build a function that executes a batch of inputs."""
 
         n_qubits = spec.n_qubits
 
@@ -284,18 +269,11 @@ class QulacsBenchmark(SimulatorBenchmark):
     def _make_grad_fn(
         self, spec: CircuitSpec
     ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
-        """Return the analytic gradient via ``ParametricQuantumCircuit.backprop``.
+        """Differentiate the summed Pauli-Z observable with Qulacs backprop.
 
-        The observable is the summed per-qubit Pauli-Z, matching the loss the
-        other adapters differentiate.  Qulacs labels qubit 0 as the least
-        significant bit, but a sum over all qubits is invariant under that
-        relabelling, so no reordering is needed.
-
-        The circuit is rebuilt for every sample.  Building it once would need
-        the data-encoding rotations as parametric gates too, which makes
-        ``backprop`` differentiate them as well: equal up to eight qubits and 7
-        to 10 percent slower from ten qubits on (measured as in
-        :meth:`_make_run_fn`).
+        Summing all qubits removes the need for endianness conversion. Rebuild
+        the circuit per sample so backprop differentiates only trainable gates;
+        making data-encoding gates parametric was 7–10% slower from ten qubits on.
         """
         observable = Observable(spec.n_qubits)
         for i in range(spec.n_qubits):

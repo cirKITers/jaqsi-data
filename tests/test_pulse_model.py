@@ -1,9 +1,7 @@
-"""Tests for the transcribed pulse schedule.
+"""Test the shared pulse schedule against independent integrations.
 
-The schedule in :mod:`benchmark.simulators.pulse_model` restates jaqsi's
-pulse-level gate decomposition for the other simulators, so it is verified
-two ways: against an independent scipy integration of the same segments, and
-against the ideal gate-level circuit the pulses are calibrated to implement.
+Compare the transcription with SciPy integration and with the calibrated
+gate-level circuit.
 """
 
 from __future__ import annotations
@@ -53,12 +51,12 @@ def _spec(n_qubits: int, n_layers: int = 1):
 
 
 def _inputs(spec) -> np.ndarray:
-    """Return one parameter vector, every CRX angle set to ``PHI``."""
+    """Set every CRX angle in one input vector to ``PHI``."""
     return np.full(spec.n_inputs, PHI)
 
 
 def _scipy_state(n_qubits: int, phi: float, envelope: str = "gaussian") -> np.ndarray:
-    """Integrate the pulse schedule with scipy, independently of jax."""
+    """Integrate the pulse schedule independently with SciPy."""
     psi = np.zeros(2**n_qubits, dtype=complex)
     psi[0] = 1.0
 
@@ -80,7 +78,7 @@ def _scipy_state(n_qubits: int, phi: float, envelope: str = "gaussian") -> np.nd
 
 
 class TestSchedule:
-    """Structural properties of the generated schedule."""
+    """Check the pulse schedule structure."""
 
     @pytest.mark.parametrize("n_qubits", [2, 3, 4])
     def test_segment_count(self, n_qubits):
@@ -128,10 +126,9 @@ class TestSchedule:
 
     @pytest.mark.parametrize("n_qubits", [2, 3, 4])
     def test_apply_local_matches_embedding(self, n_qubits):
-        """Contracting a local operator equals applying its embedded form.
+        """Match local tensor contraction to full operator embedding.
 
-        The optimized adapters integrate local propagators and contract them
-        into the statevector, so the two routes have to agree exactly.
+        Optimized adapters use local propagators, so both routes must agree.
         """
         rng = np.random.default_rng(n_qubits)
         psi = rng.normal(size=2**n_qubits) + 1j * rng.normal(size=2**n_qubits)
@@ -149,13 +146,12 @@ class TestSchedule:
 
 
 class TestNoise:
-    """The noise mode's channels and the density-matrix routes applying them."""
+    """Check noise channel placement and density matrix evolution."""
 
     def test_channels_follow_their_gate(self):
-        """Each channel sits after the last segment of the gate before it.
+        """Place each channel after its gate's final pulse segment.
 
-        A Hadamard spans 3 segments and a CRX 18, so on two qubits the
-        channels of H(0), H(1), CRX(0, 1) and CRX(1, 0) land at these indices.
+        Hadamard uses 3 segments and CRX uses 18.
         """
         clean = build_schedule(_spec(2))
         noisy = build_schedule(build_spec("crx_ring", 2, 1, depolarizing=0.1))
@@ -204,14 +200,14 @@ class TestNoise:
 
 
 class TestTranscription:
-    """The schedule reproduces what jaqsi's pulse gates actually execute."""
+    """Compare the shared schedule with JAQSI pulse gates."""
 
     @pytest.mark.parametrize("xp", [np, jnp])
     def test_envelopes_match_jaqsi(self, xp):
-        """$E$ and $Q$ equal jaqsi's lifted Gaussian and its DRAG quadrature.
+        """Match JAQSI's Gaussian and DRAG envelopes.
 
-        $E$ vanishes at the pulse edges, and both stay finite far outside the
-        pulse, where adaptive solvers may probe their first step.
+        The in-phase term vanishes at pulse edges; both terms remain finite where
+        adaptive solvers may probe outside the pulse.
         """
         from jaqsi.pulses import PulseEnvelope
 
@@ -245,11 +241,7 @@ class TestTranscription:
         )
 
     def test_drag_quadrature_matches_jaqsi_pulse(self, drag_with_beta, monkeypatch):
-        """The DRAG quadrature drives the axis, with the sign, jaqsi's RY uses.
-
-        With the quadrature on $+X$ instead the schedule diverges from jaqsi
-        far beyond the solver precision.
-        """
+        """Match the sign and axis of JAQSI's driven-RY DRAG quadrature."""
         n_qubits = 2
         sim = JaqsiPulseBenchmark()
         spec = _spec(n_qubits)
@@ -286,7 +278,7 @@ class TestTranscription:
 
 
 class TestGateEquivalence:
-    """The pulses implement the gate-level circuit they are calibrated for."""
+    """Compare calibrated pulses with their gate-level circuit."""
 
     @pytest.mark.parametrize("n_qubits", [2, 3])
     def test_expval_approximates_gate_level(self, n_qubits):

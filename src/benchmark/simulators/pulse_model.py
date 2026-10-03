@@ -1,29 +1,11 @@
-"""Pulse schedule of the benchmark circuit, transcribed from JAQSI.
+r"""Transcribe JAQSI pulse gates into a shared benchmark schedule.
 
-JAQSI implements a pulse-level gate as a sequence of time evolutions
-$\\mathrm{d}U/\\mathrm{d}t = -i H(t) U$, one per basis gate of the gate's
-decomposition.  This module restates that sequence for the benchmark circuit
-(a Hadamard layer followed by $CRX$ rings) as plain matrices and
-coefficient callables, so that every simulator adapter integrates the identical
-ODE sequence rather than its own pulse model.
-
-The transcription mirrors ``jaqsi.pulses`` with the rotating-wave approximation
-enabled and either the ``gaussian`` or the ``drag`` envelope at its calibrated
-defaults, which are read from jaqsi.  Under the RWA the carrier drops out of the
-coefficients, leaving
-
-$$ H(t) = \\tfrac{1}{2}\\,w\\,\\bigl(E(t)\\,P + Q(t)\\,P_\\perp\\bigr), \\qquad
-   E(t) = A \\frac{g(t) - g(0)}{1 - g(0)}, \\qquad
-   Q(t) = -\\beta \\dot{E}(t) = \\frac{\\beta A (t - T/2)}{\\sigma^2}
-   \\frac{g(t)}{1 - g(0)} $$
-
-with $g(t) = e^{-(t - T/2)^2/(2\\sigma^2)}$ for the driven $RY$ ($P = Y$) of
-duration $T$, whose lifted Gaussian envelope is centred at the pulse midpoint
-and vanishes at its edges, and whose quadrature $Q$ drives $P_\\perp = -X$ for
-``drag`` and vanishes for ``gaussian``, and a constant $H$ for the virtual
-$RZ$, the $CZ$ coupling and the Hadamard correction phase.  Only numpy is
-imported at module level so the module stays usable without the optional pulse
-backends.
+Each gate becomes segments solving $\mathrm{d}U/\mathrm{d}t=-iH(t)U$.
+Driven $RY$ uses JAQSI's calibrated Gaussian or DRAG envelope under the
+rotating-wave approximation, with $H(t)=w(E(t)Y-Q(t)X)/2$ and
+$Q(t)=-\beta\dot E(t)$ for DRAG ($Q=0$ for Gaussian). $RZ$, $CZ$, and the
+Hadamard correction use constant Hamiltonians. Other adapters integrate
+these same segments. Module import requires only NumPy.
 """
 
 from __future__ import annotations
@@ -62,13 +44,11 @@ H_CORRECTION = (np.pi / 2) * _ID
 
 @dataclass(frozen=True)
 class Segment:
-    """One time evolution of the pulse schedule.
+    """Describe one segment of a local pulse Hamiltonian.
 
-    The Hamiltonian is ``coeff(t) * op`` acting on ``wires``, plus
-    ``quad_coeff(t) * quad_op`` for a DRAG rotation, integrated from $0$ to
-    ``duration``.  ``angle_fn`` maps the circuit's input parameter vector to
-    the segment's scale factor; ``envelope`` holds the envelope parameters of a
-    driven rotation and is ``None`` for the constant-coefficient gates.
+    The in-phase operator and optional DRAG quadrature act on ``wires`` over
+    ``duration``. ``angle_fn`` reads the circuit parameter; ``envelope`` is
+    set only for driven rotations.
     """
 
     op: np.ndarray
@@ -80,16 +60,15 @@ class Segment:
 
     @property
     def ops(self) -> Tuple[np.ndarray, ...]:
-        """Operators of the Hamiltonian terms, the DRAG quadrature last."""
+        """Return Hamiltonian operators, with the DRAG quadrature last."""
         return (self.op,) if self.quad_op is None else (self.op, self.quad_op)
 
 
 @dataclass(frozen=True)
 class Channel:
-    """Depolarizing channel of probability ``p`` on ``wire``.
+    """Represent a depolarizing channel on one wire.
 
-    Sits between the segments of two gates, where the ``noise`` mode's circuit
-    spec places it, which is also where jaqsi's pulse gates apply their noise.
+    The noise mode places it between gates, as jaqsi pulse gates do.
     """
 
     wire: int
@@ -97,10 +76,9 @@ class Channel:
 
 
 def ry_envelope(envelope: str) -> Tuple[Tuple[float, ...], float]:
-    """Return the calibrated envelope parameters of the driven $RY$ and its duration.
+    """Return JAQSI's calibrated driven-RY envelope and duration.
 
-    Read from ``PulseEnvelope.REGISTRY`` in jaqsi: $(A, \\sigma)$ for the
-    Gaussian and $(A, \\beta, \\sigma)$ for DRAG.
+    Gaussian uses ``(A, sigma)``; DRAG uses ``(A, beta, sigma)``.
     """
     from jaqsi.pulses import PulseEnvelope
 
@@ -111,14 +89,14 @@ def ry_envelope(envelope: str) -> Tuple[Tuple[float, ...], float]:
 
 
 def in_phase_env(t, envelope: Tuple[float, ...], duration: float, xp=np):
-    """Evaluate the in-phase envelope $E(t)$ of a driven rotation.
+    r"""Evaluate the driven rotation's lifted Gaussian envelope.
 
-    Matches ``PulseEnvelope.gaussian`` and ``PulseEnvelope.drag``, which are
-    the same lifted Gaussian, centred at the midpoint of the pulse of length
-    *duration* and zero at its edges.  Written with ``expm1`` as in jaqsi, so
-    that it stays accurate for $\\sigma$ well above the duration and finite
-    outside the pulse, where adaptive solvers may probe their first step.  Pass
-    ``xp=jnp`` for the JAX-based backends.
+    $E(t)=A(g(t)-g(0))/(1-g(0))$ with
+    $g(t)=\exp(-(t-T/2)^2/(2\sigma^2))$.
+    Match JAQSI's Gaussian and DRAG in-phase terms, including zero amplitude
+    at pulse edges. ``expm1`` keeps values accurate for wide envelopes and
+    finite outside the pulse, where adaptive solvers may probe. Use
+    ``xp=jnp`` for JAX backends.
     """
     amplitude, sigma = envelope[0], envelope[-1]
     # Exponents of $g(t)$ and $g(0)$, and their difference without cancellation.
@@ -130,10 +108,9 @@ def in_phase_env(t, envelope: Tuple[float, ...], duration: float, xp=np):
 
 
 def quadrature_env(t, envelope: Tuple[float, float, float], duration: float, xp=np):
-    """Evaluate the DRAG quadrature envelope $Q(t) = -\\beta \\dot{E}(t)$.
+    r"""Evaluate the DRAG term $Q(t)=-\beta\dot E(t)$.
 
-    Matches ``PulseEnvelope.drag_quadrature``.  Unlike $E$, it does not vanish
-    at the pulse edges.
+    Unlike the in-phase envelope, it need not vanish at pulse edges.
     """
     amplitude, beta, sigma = envelope
     center = duration / 2
@@ -143,11 +120,9 @@ def quadrature_env(t, envelope: Tuple[float, float, float], duration: float, xp=
 
 
 def make_coeff_fns(segment: Segment, params, xp=np) -> List[Callable]:
-    """Return the coefficients $c(t)$ of the terms of *segment* at *params*.
+    """Build coefficient functions for a segment and parameter vector.
 
-    The list follows ``segment.ops``.  Constant-coefficient segments return
-    their scale factor unchanged, so the callables are valid for every segment
-    type.
+    Return them in ``segment.ops`` order; constant terms retain their scale.
     """
     angle = segment.angle_fn(params)
     if segment.envelope is None:
@@ -165,11 +140,9 @@ def make_coeff_fns(segment: Segment, params, xp=np) -> List[Callable]:
 
 
 def embed(op: np.ndarray, wires: Tuple[int, ...], n_qubits: int, xp=np):
-    """Embed *op* into the full register, qubit $0$ being the most significant.
+    """Embed an operator in a big-endian qubit register.
 
-    Kronecker-multiplies *op* with the identity on the remaining qubits and
-    permutes the result into ascending wire order, matching the big-endian
-    basis convention used by JAQSI and PennyLane.
+    Qubit zero is most significant, matching JAQSI and PennyLane.
     """
     rest = [q for q in range(n_qubits) if q not in wires]
     full = xp.kron(op, xp.eye(2 ** len(rest), dtype=op.dtype)) if rest else op
@@ -182,12 +155,9 @@ def embed(op: np.ndarray, wires: Tuple[int, ...], n_qubits: int, xp=np):
 
 
 def apply_local(u, psi, wires: Tuple[int, ...], n_qubits: int, xp=np):
-    """Apply the local unitary *u* on *wires* to the statevector *psi*.
+    """Apply a local unitary to a statevector by tensor contraction.
 
-    Contracts *u* with the corresponding axes of *psi* instead of embedding it
-    into the full register, so the caller only ever integrates a $2 \\times 2$
-    or $4 \\times 4$ ODE.  Equivalent to ``embed(u, wires, n_qubits) @ psi``
-    under the same big-endian convention.
+    Equivalent to embedding the unitary in the full big-endian register.
     """
     k = len(wires)
     tensor = psi.reshape([2] * n_qubits)
@@ -216,11 +186,9 @@ def _contract_axes(op, tensor, axes: List[int], xp=np):
 
 
 def apply_local_density(u, rho, wires: Tuple[int, ...], n_qubits: int, xp=np):
-    """Return $U \\rho U^\\dagger$ for the local unitary *u* on *wires*.
+    r"""Apply local $U\rho U^\dagger$ to a density matrix.
 
-    The density-matrix counterpart of :func:`apply_local`: *u* acts on the ket
-    axes of *rho* and its conjugate on the bra axes, under the same big-endian
-    convention.
+    Contract ket and bra axes under the big-endian convention.
     """
     k = len(wires)
     u = u.reshape([2] * (2 * k))
@@ -231,10 +199,10 @@ def apply_local_density(u, rho, wires: Tuple[int, ...], n_qubits: int, xp=np):
 
 
 def depolarize(rho, p: float, wire: int, n_qubits: int, xp=np):
-    """Apply the depolarizing channel of probability *p* on *wire* to *rho*.
+    r"""Apply a single-wire depolarizing channel to ``rho``.
 
-    $\\rho \\mapsto (1 - p)\\rho + \\frac{p}{3}(X\\rho X + Y\\rho Y + Z\\rho Z)$,
-    the Kraus form jaqsi, PennyLane and Qulacs use.
+    Use $(1-p)\rho + p(X\rho X+Y\rho Y+Z\rho Z)/3$, as in JAQSI,
+    PennyLane, and Qulacs.
     """
     flipped = sum(
         apply_local_density(xp.asarray(pauli), rho, (wire,), n_qubits, xp)
@@ -256,11 +224,9 @@ def _pauli_z_expvals(probs, n_qubits: int, xp=np):
 
 
 def project_state(psi, mode: str, n_qubits: int, xp=np):
-    """Map the final statevector *psi* onto the requested measurement mode.
+    """Project a final statevector into the requested mode.
 
-    Shared by the adapters whose backend solves for a statevector only; the
-    pulse schedule is unitary, so the density matrix is the pure-state
-    projector.
+    For density output, form the pure-state projector.
     """
     if mode == "state":
         return psi
@@ -286,10 +252,9 @@ def _rz(angle_fn: Callable[[np.ndarray], float], wire: int) -> Segment:
 def _ry(
     angle_fn: Callable[[np.ndarray], float], wire: int, envelope: str
 ) -> Segment:
-    """Driven $RY$ rotation with the calibrated *envelope*.
+    r"""Build driven $RY$ segments with the calibrated envelope.
 
-    The DRAG quadrature drives $-X$, the axis the carrier phase $\\pi/2$ of
-    $RY$ rotates the quadrature onto.
+    The DRAG quadrature drives $-X$ at carrier phase $\pi/2$.
     """
     params, duration = ry_envelope(envelope)
     return Segment(
@@ -341,10 +306,9 @@ def _cnot(control: int, target: int, envelope: str) -> List[Segment]:
 
 
 def _crx(control: int, target: int, index: int, envelope: str) -> List[Segment]:
-    """$CRX(\\phi)$ as two $CX$ interleaved with $RY(\\pm\\frac{\\phi}{2})$.
+    r"""Build $CRX(\phi)$ from two $CX$ gates and two $RY$ rotations.
 
-    *index* is the position of this gate's angle within the circuit's input
-    parameter vector.
+    ``index`` locates its angle in the input parameter vector.
     """
     return [
         _rz(lambda params: np.pi / 2, target),
@@ -359,15 +323,12 @@ def _crx(control: int, target: int, index: int, envelope: str) -> List[Segment]:
 def build_schedule(
     spec: CircuitSpec, envelope: str = "gaussian"
 ) -> List[Union[Segment, Channel]]:
-    """Return the pulse schedule of *spec* in execution order.
+    """Build ``spec``'s pulse segments and noise channels in order.
 
-    *envelope* is the jaqsi pulse envelope of the driven rotations,
-    ``gaussian`` or ``drag``.  Only the Hadamard and $CRX$ decompositions are
-    transcribed, so the ``crx_ring`` family is the only one with a pulse-level
-    counterpart: its Hadamard layer contributes $3 n$ segments and every $CRX$
-    ring another $18 n$, i.e. $21 n$ at a depth of one.  A noisy spec adds a
-    :class:`Channel` wherever it holds a ``DEPOL`` op, after the segments of
-    the gate before it.
+    ``envelope`` selects JAQSI Gaussian or DRAG driven rotations. Only the
+    ``crx_ring`` family's Hadamard and $CRX$ gates are transcribed: its
+    Hadamard layer uses $3n$ segments and each $CRX$ ring uses $18n$.
+    Insert each ``DEPOL`` channel after its preceding gate's segments.
     """
     if envelope not in PULSE_ENVELOPES:
         raise ValueError(

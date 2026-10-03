@@ -36,11 +36,9 @@ def _apply(spec: CircuitSpec, inputs, weights) -> None:
 
 
 class PennylaneBenchmark(SimulatorBenchmark):
-    """PennyLane on ``default.qubit``, differentiated by backpropagation.
+    """Run ``default.qubit`` with backpropagation.
 
-    Forward modes rely on PennyLane's own parameter broadcasting for the batch
-    axis rather than on a Python loop, which is the fastest batching route the
-    framework offers.
+    Forward modes use PennyLane parameter broadcasting across the batch.
     """
 
     name = "pennylane"
@@ -127,11 +125,10 @@ class PennylaneBenchmark(SimulatorBenchmark):
             self._run_fn = circuit
 
     def _make_grad_fn(self, spec: CircuitSpec, dev) -> Callable:
-        """Return the gradient of the summed Pauli-Z expectation.
+        r"""Differentiate the summed Pauli-Z expectation.
 
-        The loss matches the other adapters: the per-qubit $\\langle Z \\rangle$
-        summed over qubits and over the batch, differentiated with respect to
-        the circuit's trainable vector.
+        Sum $\langle Z \rangle$ over qubits and samples before differentiating
+        the trainable vector.
         """
         observable = qml.sum(*[qml.PauliZ(i) for i in range(spec.n_qubits)])
         argnum = 1 if spec.trainable == "weights" else 0
@@ -207,11 +204,9 @@ class PennylaneBenchmark(SimulatorBenchmark):
 
 
 class PennylaneLightningBenchmark(PennylaneBenchmark):
-    """PennyLane on ``lightning.qubit`` with the adjoint gradient.
+    """Run ``lightning.qubit`` with adjoint differentiation.
 
-    Lightning is PennyLane's compiled state-vector backend and adjoint
-    differentiation is the method it is tuned for, so this is the reference
-    point a gradient comparison against PennyLane has to clear.
+    Lightning is PennyLane's compiled statevector backend.
     """
 
     name = "pennylane_lightning"
@@ -228,11 +223,10 @@ class PennylaneLightningBenchmark(PennylaneBenchmark):
 
 
 class PennylanePsrBenchmark(PennylaneBenchmark):
-    """PennyLane on ``default.qubit`` with parameter-shift gradients.
+    """Run ``default.qubit`` with parameter-shift gradients.
 
-    Included because the parameter-shift rule is the only gradient that also
-    runs on hardware, which makes it the baseline QML papers report even
-    though it costs two circuit evaluations per parameter.
+    Parameter shift supports hardware execution and takes two circuit
+    evaluations per parameter.
     """
 
     name = "pennylane_psr"

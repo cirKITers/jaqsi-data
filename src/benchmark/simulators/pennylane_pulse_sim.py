@@ -1,13 +1,8 @@
-"""PennyLane pulse-level simulator benchmark adapter.
+"""Benchmark the shared pulse schedule on PennyLane ``default.qubit``.
 
-Rebuilds the pulse schedule of :mod:`benchmark.simulators.pulse_model` on
-``default.qubit`` in one of two configurations.  The default path expresses
-each segment as a ``qml.pulse.ParametrizedEvolution``, the idiomatic pulse
-API.  The optimized path integrates the same segments directly with
-``jax.experimental.ode``, the solver ``ParametrizedEvolution`` itself builds
-on, and applies the resulting unitaries as gates.  Both integrate identical
-ODEs; the optimized path drops PennyLane's per-operation overhead, which
-dominates the default path, at the cost of no longer exercising the pulse API.
+The default path uses ``qml.pulse.ParametrizedEvolution``. The optimized
+path integrates the same ODEs with ``jax.experimental.ode`` and applies
+the resulting unitaries as gates, avoiding pulse API overhead.
 """
 
 from __future__ import annotations
@@ -37,11 +32,9 @@ _RTOL = 1.0e-10
 
 
 def _parametrized_hamiltonian(segment: Segment) -> qml.pulse.ParametrizedHamiltonian:
-    """Return ``c(t) * op`` for *segment* with the scale factor as parameter.
+    """Build a segment Hamiltonian with a trainable scale factor.
 
-    Every coefficient takes the segment's scale factor as its trainable
-    parameter, so the same object serves every value of $\\phi$.  A DRAG
-    rotation adds its quadrature as a second term.
+    The same object accepts every angle. DRAG adds a quadrature term.
     """
     op = qml.Hermitian(segment.op, wires=segment.wires)
     if segment.envelope is None:
@@ -60,10 +53,10 @@ def _parametrized_hamiltonian(segment: Segment) -> qml.pulse.ParametrizedHamilto
 
 
 def _segment_unitary(segment: Segment, params) -> jnp.ndarray:
-    """Solve $\\mathrm{d}U/\\mathrm{d}t = -i \\sum_k c_k(t) H_k U$ over one segment.
+    r"""Integrate one segment's local unitary.
 
-    The Hamiltonian acts on one or two wires, so only the local unitary is
-    integrated rather than one over the full register.
+    Solve $\mathrm{d}U/\mathrm{d}t = -i \sum_k c_k(t) H_k U$ on its one or two
+    wires, rather than on the full register.
     """
     ops = [jnp.asarray(op) for op in segment.ops]
     coeffs = make_coeff_fns(segment, params, jnp)

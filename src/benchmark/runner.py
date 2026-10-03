@@ -1,4 +1,4 @@
-"""Benchmark runner with CSV-based recovery support."""
+"""Run benchmarks and resume completed CSV results."""
 
 from __future__ import annotations
 
@@ -97,13 +97,10 @@ def _sqrtm_psd(a: jnp.ndarray) -> jnp.ndarray:
 
 
 def _infidelity(pulse_output, gate_output, mode: str) -> Optional[float]:
-    """Return $1 - F$ between a pulse result and its gate-level counterpart.
+    """Return the worst batch infidelity, $1-F$, between pulse and gate results.
 
-    The fidelity is normalised by the norms of both operands, so that the
-    result measures the deviation in state rather than the norm drift the ODE
-    solvers accumulate.  Returns the worst case over the batch, or ``None``
-    for modes that define no state.  Normalisation bounds the fidelity by one,
-    so the result is clipped at zero to absorb rounding at that bound.
+    Normalize by both state norms to exclude ODE norm drift. Return ``None``
+    for modes without a state, and clip rounding below zero.
     """
     pulse = jnp.asarray(pulse_output)
     gate = jnp.asarray(gate_output)
@@ -163,11 +160,10 @@ def _simulator_output(
 
 
 def _git_commit() -> str:
-    """Return the short commit this benchmark ran from, ``unknown`` if unclear.
+    """Return the short commit, or ``unknown`` if unavailable.
 
-    A ``-dirty`` suffix marks modified *tracked* files; untracked ones are
-    ignored, since a results file being written into the tree is the normal
-    case and does not change the code that produced it.
+    Append ``-dirty`` for tracked edits. Untracked result files do not affect
+    the code identity.
     """
     root = Path(__file__).resolve().parent.parent.parent
     try:
@@ -193,12 +189,9 @@ def _git_commit() -> str:
 
 
 def _csv_path(cfg: BenchmarkConfig) -> Path:
-    """Return the results path, tagged with the commit the run came from.
+    """Return the results path with the identifier and commit in its name.
 
-    The commit is part of the file name rather than a column so that a results
-    file identifies its own provenance once it is copied off the machine, and
-    so that a run started after a code change lands in its own file instead of
-    resuming into results from different code.
+    The commit keeps runs from different code revisions in separate files.
     """
     name = f"benchmarks-{cfg.output.identifier}-{_git_commit()}.csv"
     return Path(cfg.output.dir) / name
@@ -215,13 +208,10 @@ def _ensure_csv(path: Path) -> None:
 
 
 def _load_completed(path: Path) -> Set[Tuple[str, int, int, int, str, str, str]]:
-    """Return the set of ``(circuit, n_layers, n_qubits, batch_size, threads,
-    mode, simulator)`` tuples already present in *path* so we can skip them on
-    a resumed run.
+    """Return completed benchmark keys from ``path`` for resume.
 
-    ``batch_size`` and ``threads`` are part of the key so that a batch or
-    thread sweep can be appended to one results file by re-running with the
-    same ``output.identifier`` and a different setting.
+    Keys include circuit, depth, width, batch size, threads, mode, and
+    simulator so sweeps can share one results file.
     """
     completed: Set[Tuple[str, int, int, int, str, str, str]] = set()
     if not path.exists():
@@ -244,7 +234,7 @@ def _load_completed(path: Path) -> Set[Tuple[str, int, int, int, str, str, str]]
 
 
 def _append_row(path: Path, result: BenchmarkResult) -> None:
-    """Append a single result row to the CSV, flushing immediately."""
+    """Append and flush one CSV result row."""
     with open(path, "a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(
@@ -269,11 +259,10 @@ def _validate_results(
     other: BenchmarkResult,
     precision: float,
 ) -> None:
-    """Raise ``RuntimeError`` when *other* diverges from *ref*.
+    """Raise ``RuntimeError`` if ``other`` differs from ``ref``.
 
-    The *ref* result is treated as the reference (typically jaqsi).
-    PennyLane returns expval as ``(n_obs, batch)`` while jaqsi and the
-    Qiskit adapter both use ``(batch, n_obs)`` layout.
+    Transpose PennyLane expectation values from ``(n_obs, batch)`` to the
+    ``(batch, n_obs)`` layout used by jaqsi and Qiskit.
     """
     ref_arr = jnp.asarray(ref.raw_output)
     oth_arr = jnp.asarray(other.raw_output)
@@ -302,13 +291,11 @@ def _validate_results(
 
 
 def run_benchmarks(cfg: BenchmarkConfig) -> Path:
-    """Execute the full benchmark suite described by *cfg*.
+    """Run the benchmark sweep in ``cfg`` and return its CSV path.
 
-    Already-completed ``(circuit, n_layers, n_qubits, batch_size, threads,
-    mode, simulator)`` combinations found in the output CSV are skipped,
-    enabling seamless recovery after a crash.
-
-    Returns the path to the CSV results file.
+    Skip combinations already present in the CSV to resume interrupted runs.
+    The resume key includes circuit, depth, width, batch size, threads, mode,
+    and simulator.
     """
     jax.config.update("jax_enable_x64", True)
 

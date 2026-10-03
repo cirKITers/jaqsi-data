@@ -1,4 +1,4 @@
-"""Tests for benchmark.runner CSV helpers and recovery logic."""
+"""Test benchmark CSV output, result validation, and resume logic."""
 
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def _result(
     mean_ms: float = 1.0,
     std_ms: float = 0.1,
 ) -> BenchmarkResult:
-    """Build a BenchmarkResult, defaulting the fields a test does not care about."""
+    """Build a ``BenchmarkResult`` with defaults for irrelevant fields."""
     return BenchmarkResult(
         simulator=simulator,
         mode=mode,
@@ -66,7 +66,7 @@ def _result(
 
 class TestCsvPath:
     def test_path_carries_identifier_and_commit(self):
-        """The commit tags the file so results identify the code that made them."""
+        """Include the run identifier and code commit in the CSV filename."""
         from benchmark.runner import _git_commit
 
         cfg = load_config(overrides=["output.dir=out", "output.identifier=abc123"])
@@ -136,7 +136,7 @@ class TestAppendAndLoadCompleted:
         assert len(completed) == 2
 
     def test_sweeps_get_separate_entries(self, tmp_path: Path):
-        """Depth, family, batch and thread sweeps must not collapse onto one key."""
+        """Keep circuit, depth, batch, and thread sweeps distinct on resume."""
         p = tmp_path / "results.csv"
         _ensure_csv(p)
 
@@ -184,7 +184,7 @@ class TestValidateResults:
             _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_transposed_pennylane(self):
-        """expval mode: PL is (n_obs, batch), Jaqsi is (batch, n_obs)."""
+        """Transpose PennyLane expectations to the reference batch layout."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  batch=1, 3 obs
         pl_arr = jnp.array([[0.1], [0.2], [0.3]])    # (3, 1)  PL convention
         r1 = _result("jaqsi", "expval", 3, ys_arr)
@@ -192,7 +192,7 @@ class TestValidateResults:
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_transposed_pennylane_lightning(self):
-        """The lightning adapter broadcasts the same way as default.qubit."""
+        """Transpose Lightning expectations to the reference batch layout."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])
         pl_arr = jnp.array([[0.1], [0.2], [0.3]])
         r1 = _result("jaqsi", "expval", 3, ys_arr)
@@ -200,7 +200,7 @@ class TestValidateResults:
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_pulse_pennylane(self):
-        """The pulse adapter stacks per sample, so it needs no transpose."""
+        """Keep pulse PennyLane expectations in batch-first order."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])
         pl_arr = jnp.array([[0.1, 0.2, 0.3]])
         r1 = _result("jaqsi_pulse", "expval", 3, ys_arr, circuit="crx_ring")
@@ -208,7 +208,7 @@ class TestValidateResults:
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_qiskit(self):
-        """expval mode: Qiskit uses (batch, n_obs) like Jaqsi — no transpose."""
+        """Keep Qiskit expectations in batch-first order."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)
         qk_arr = jnp.array([[0.1, 0.2, 0.3]])       # (1, 3)  same layout
         r1 = _result("jaqsi", "expval", 3, ys_arr)
@@ -228,7 +228,7 @@ class TestValidateResults:
         _validate_results(r1, r2, precision=1e-8)
 
     def test_expval_not_transposed_qibo(self):
-        """expval mode: Qibo uses (batch, n_obs) like Jaqsi — no transpose."""
+        """Keep Qibo expectations in batch-first order."""
         ys_arr = jnp.array([[0.1, 0.2, 0.3]])
         qb_arr = jnp.array([[0.1, 0.2, 0.3]])
         r1 = _result("jaqsi", "expval", 3, ys_arr)
@@ -272,7 +272,7 @@ class TestInfidelity:
         assert _infidelity(phased, self._PSI, "state") == pytest.approx(0.0, abs=1e-15)
 
     def test_norm_drift_does_not_go_negative(self):
-        """The ODE solvers do not preserve the norm exactly."""
+        """Clip infidelity below zero when ODE norm drift inflates fidelity."""
         drifted = self._PSI * (1.0 + 1.0e-7)
         assert _infidelity(drifted, self._PSI, "state") >= 0.0
 
@@ -302,17 +302,17 @@ class TestInfidelity:
         assert _infidelity(rho, rho, "noise") == pytest.approx(0.0, abs=1e-12)
 
     def test_noise_matches_analytic_mixed_fidelity(self):
-        """Commuting states reduce the Uhlmann fidelity to a classical one."""
+        """Match analytic fidelity for commuting mixed states."""
         rho = jnp.array([[[0.9, 0.0], [0.0, 0.1]]], dtype=complex)
         sigma = jnp.array([[[0.6, 0.0], [0.0, 0.4]]], dtype=complex)
         expected = 1.0 - (jnp.sqrt(0.9 * 0.6) + jnp.sqrt(0.1 * 0.4)) ** 2
         assert _infidelity(sigma, rho, "noise") == pytest.approx(float(expected))
 
     def test_noise_resolves_states_with_tiny_eigenvalues(self):
-        """Noisy states have eigenvalues far below one; rounding must not grow.
+        r"""Keep identical noisy states near zero infidelity.
 
-        Taking roots of the eigenvalues of $\\sqrt{\\rho}\\sigma\\sqrt{\\rho}$
-        reports about $10^{-8}$ here for identical inputs.
+        Taking roots of eigenvalues of $\sqrt{\rho}\sigma\sqrt{\rho}$ instead
+        produces about $10^{-8}$ infidelity here.
         """
         rng = np.random.default_rng(0)
         dim = 64
@@ -344,7 +344,7 @@ class TestInfidelity:
 
 
 class TestInfidelityColumn:
-    """The infidelity reaches the CSV, and is blank for gate-level rows."""
+    """Write infidelity only for pulse-level CSV rows."""
 
     def test_written_for_pulse_rows(self, tmp_path: Path):
         path = tmp_path / "b.csv"
@@ -370,7 +370,7 @@ class TestInfidelityColumn:
 
 
 class TestNoiseMode:
-    """Only the noise mode is handed a circuit with depolarizing channels."""
+    """Add depolarizing channels only in noise mode."""
 
     def test_channels_reach_the_noise_mode_only(self, tmp_path: Path, monkeypatch):
         from benchmark.simulators.jaqsi_sim import JaqsiBenchmark

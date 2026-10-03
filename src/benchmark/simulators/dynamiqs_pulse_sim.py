@@ -1,13 +1,9 @@
-"""Dynamiqs pulse-level simulator benchmark adapter.
+"""Benchmark the shared pulse schedule with Dynamiqs.
 
-Integrates the pulse schedule of :mod:`benchmark.simulators.pulse_model`
-segment by segment, using the same Dormand-Prince 8(7) method as jaqsi.  The
-default path evolves the statevector of the whole register with
-``dynamiqs.sesolve``, the idiomatic formulation.  Under ``optimal_config`` each
-segment propagator is integrated on its own two- or four-dimensional space with
-``dynamiqs.sepropagator`` and contracted into the statevector instead, matching
-how jaqsi and the optimized PennyLane path compose their pulse gates.  Both
-integrate identical ODEs; only their dimension differs.
+The default path evolves the full state with ``sesolve``. With
+``optimal_config``, ``sepropagator`` evolves each local segment before
+contracting it into the state. Both use jaqsi's Dormand-Prince 8(7)
+method.
 """
 
 from __future__ import annotations
@@ -133,14 +129,11 @@ class DynamiqsPulseBenchmark(SimulatorBenchmark):
             return project_state(state, mode, n_qubits, jnp)
 
         def solve_density(params: jnp.ndarray) -> jnp.ndarray:
-            """Evolve the density matrix of $\\lvert 0 \\dots 0 \\rangle$ with ``mesolve``.
+            """Evolve the noisy density matrix with ``mesolve``.
 
-            No jump operators are passed: the noise is the schedule's discrete
-            channels, applied between the solves.  Without jump operators
-            dynamiqs' default form adds their empty sum as a scalar and fails,
-            so the equation is solved in vectorized form.  That form returns
-            its states without their qubit dims, so the state is carried as a
-            plain array and given its dims again for every solve.
+            Noise comes from discrete schedule channels, so no jump operators are
+            passed. Use the vectorized form because Dynamiqs fails on an empty jump
+            sum; restore qubit dimensions before each subsequent solve.
             """
             rho = dq.todm(psi0).to_jax()
             for op, seg in zip(ops, segments):

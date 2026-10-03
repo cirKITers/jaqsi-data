@@ -27,13 +27,11 @@ Mode = Literal["probs", "expval", "state", "density", "grad", "noise"]
 
 
 def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
-    """Return the permutation mapping little-endian to big-endian basis order.
+    """Return indices that reorder a state from little- to big-endian basis.
 
-    Little-endian simulators (Qiskit, Qulacs) label qubit 0 as the
-    least-significant bit, so basis index $b_{n-1}\\dots b_1 b_0$ corresponds
-    to $b_0 b_1 \\dots b_{n-1}$ in the big-endian convention used by JAQSI,
-    PennyLane and Qibo. The returned array re-sorts a length-$2^n$ vector from
-    little-endian to big-endian order.
+    Qiskit and Qulacs use little-endian basis indices; JAQSI, PennyLane, and
+    Qibo use big-endian indices. The permutation reverses the qubit bits of
+    each basis index.
     """
     N = 1 << n_qubits
     indices = np.zeros(N, dtype=int)
@@ -45,7 +43,7 @@ def _endian_reverse_indices(n_qubits: int) -> np.ndarray:
 
 @dataclass
 class BenchmarkResult:
-    """Container for a single benchmark measurement."""
+    """Store one timed benchmark result and its output."""
 
     simulator: str
     mode: Mode
@@ -65,7 +63,7 @@ class BenchmarkResult:
 
 
 class SimulatorBenchmark(ABC):
-    """Interface every simulator adapter must implement."""
+    """Define the interface and timing harness for simulator adapters."""
 
     name: str  # e.g. "jaqsi", "pennylane"
 
@@ -75,32 +73,27 @@ class SimulatorBenchmark(ABC):
     def setup(
         self, spec: CircuitSpec, mode: Mode, *, optimal_config: bool = False
     ) -> None:
-        """Prepare the circuit / device for a given circuit and mode.
+        """Prepare the circuit and device outside the timed loop.
 
-        Called once before warmup and timing loops so that device
-        instantiation time is not included in the measurement.  When
-        optimal_config is set, the adapter selects its performance-optimized
-        configuration instead of the default fallback.
+        ``optimal_config`` selects the adapter's performance configuration.
         """
 
     @abstractmethod
     def warmup(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
-        """Run a single *un-timed* execution to trigger JIT compilation."""
+        """Run once before timing to trigger compilation."""
 
     @abstractmethod
     def run(self, inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:
-        """Execute one batched pass and return the result.
+        """Execute one batch and return its output.
 
-        *inputs* has shape ``(batch, n_inputs)`` and *weights* the unbatched
-        shape ``(n_weights,)``.
+        ``inputs`` has shape ``(batch, n_inputs)``; shared ``weights`` has shape
+        ``(n_weights,)``.
         """
 
     def supports(self, spec: CircuitSpec, mode: Mode) -> bool:
-        """Whether this adapter can run *mode* on *spec*.
+        """Return whether the adapter supports ``mode`` on ``spec``.
 
-        The runner skips and logs unsupported combinations instead of failing,
-        so a simulator without a gradient interface still contributes its
-        forward measurements.
+        The runner skips unsupported combinations.
         """
         return True
 
@@ -117,26 +110,13 @@ class SimulatorBenchmark(ABC):
         do_warmup: bool = True,
         optimal_config: bool = False,
     ) -> BenchmarkResult:
-        """Time ``self.run`` over *n_iters* iterations.
+        """Time ``run`` for one circuit and mode.
 
-        Parameters
-        ----------
-        spec:
-            Circuit to execute.
-        mode:
-            Measurement mode, or ``grad`` for the differentiation workload.
-        all_inputs:
-            Array of shape ``(n_iters + 1, batch_size, n_inputs)`` where the
-            *last* entry is used for warmup and entries ``0 .. n_iters-1`` are
-            used for the timed loop.
-        all_weights:
-            Array of shape ``(n_iters + 1, n_weights)`` following the same
-            convention.  Weights are shared across the batch and redrawn every
-            iteration, so no simulator can cache across the timed loop.
-        do_warmup:
-            Whether to run a warmup pass before timing.
-        optimal_config:
-            Whether to use the performance-optimized simulator configuration.
+        ``all_inputs`` has shape ``(n_iters + 1, batch_size, n_inputs)`` and
+        ``all_weights`` has shape ``(n_iters + 1, n_weights)``. The final entry
+        warms up the adapter; the others are timed. Weights are shared within each
+        batch and redrawn per iteration. ``do_warmup`` controls the warmup pass,
+        and ``optimal_config`` selects the adapter's performance configuration.
         """
         n_iters = all_inputs.shape[0] - 1
         batch_size = all_inputs.shape[1]

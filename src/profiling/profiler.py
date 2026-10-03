@@ -1,10 +1,6 @@
-"""JAQSI performance profiler using JAX's built-in profiler and Perfetto.
+"""Profile JAQSI with JAX traces viewable in Perfetto.
 
-This module provides ``JaqsiProfiler``, which exercises the JAQSI simulator
-on configurable qubit counts and measurement modes while capturing JAX
-execution traces.  The resulting trace directories can be opened directly
-in `Perfetto UI <https://ui.perfetto.dev/>`_ for detailed performance
-analysis (kernel timings, memory, device utilisation, …).
+``JaqsiProfiler`` records traces across configured qubit counts and modes.
 """
 
 from __future__ import annotations
@@ -36,13 +32,9 @@ logger = logging.getLogger(__name__)
 
 
 class JaqsiProfiler:
-    """Profile the JAQSI simulator with JAX/Perfetto traces.
+    """Profile JAQSI with JAX traces.
 
-    Parameters
-    ----------
-    config : ProfilingConfig, optional
-        Profiling session configuration.  When *None* the default
-        ``ProfilingConfig`` is used.
+    ``config`` defaults to ``ProfilingConfig()``.
     """
 
     def __init__(
@@ -62,10 +54,10 @@ class JaqsiProfiler:
     # ------------------------------------------------------------------
 
     def run_all(self) -> list[dict]:
-        """Profile every (mode, qubit_count) combination.
+        """Profile each configured mode and qubit count.
 
-        Returns a list of result dicts (one per combination) with timing
-        metadata and the path to the Perfetto trace directory.
+        Return one result dictionary per combination, including timing data and
+        the Perfetto trace directory.
         """
         output_dir = Path(self.config.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -107,7 +99,7 @@ class JaqsiProfiler:
         n_qubits: int,
         output_dir: Path,
     ) -> dict:
-        """Run warm-up iterations followed by a JAX-profiled execution."""
+        """Warm up and profile one mode and qubit count."""
         logger.info(
             "Profiling JAQSI – mode=%s, n_qubits=%d …", mode, n_qubits
         )
@@ -217,7 +209,7 @@ class JaqsiProfiler:
         return result
 
     def _write_summary(self, output_dir: Path) -> None:
-        """Write a human-readable summary of all profiling results."""
+        """Write a readable summary of all profiling results."""
         summary_path = output_dir / "profiling_summary.txt"
 
         lines: list[str] = []
@@ -258,12 +250,12 @@ class JaqsiProfiler:
         print(summary_text)
 
     def _save_csv(self, output_dir: Path) -> Path:
-        """Persist results to CSV for later re-plotting."""
+        """Save results as CSV for later plotting."""
         csv_path = output_dir / "profiling_results.csv"
         return save_profiling_csv(self._results, csv_path)
 
     def _generate_plots(self, output_dir: Path) -> None:
-        """Generate publication-quality plots from the profiling results."""
+        """Plot the profiling results."""
         by_mode = load_profiling_results(self._results)
 
         print_profiling_summary(by_mode)

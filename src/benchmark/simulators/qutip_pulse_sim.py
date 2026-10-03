@@ -1,13 +1,8 @@
-"""QuTiP pulse-level simulator benchmark adapter.
+"""Benchmark the shared pulse schedule with QuTiP.
 
-Integrates the pulse schedule of :mod:`benchmark.simulators.pulse_model`
-segment by segment with ``qutip.sesolve``.  The default path evolves the
-statevector of the whole register under the embedded segment operator, the
-idiomatic formulation.  Under ``optimal_config`` each segment propagator is
-integrated on its own two- or four-dimensional space with ``qutip.propagator``
-and contracted into the statevector instead, matching how jaqsi and the
-optimized PennyLane path compose their pulse gates.  Both integrate identical
-ODEs; only their dimension differs.
+The default path evolves the full state with ``sesolve``. With
+``optimal_config``, ``propagator`` evolves each local segment before
+contracting it into the state.
 """
 
 from __future__ import annotations
@@ -138,10 +133,10 @@ class QutipPulseBenchmark(SimulatorBenchmark):
         return psi
 
     def _solve_density(self, params: np.ndarray) -> np.ndarray:
-        """Evolve $\\lvert 0 \\dots 0 \\rangle\\langle 0 \\dots 0 \\rvert$ with ``mesolve``.
+        """Evolve the initial density matrix with ``mesolve``.
 
-        No collapse operators are passed: the noise is the schedule's discrete
-        channels, applied between the solves.
+        Noise comes from discrete schedule channels, so no collapse operators
+        are passed.
         """
         rho = qutip.ket2dm(self._psi0)
         for op, seg in self._segments:

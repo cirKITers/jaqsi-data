@@ -68,7 +68,7 @@ class TestLoadResults:
         assert probs.simulators["qibo"].mean_ms[0] == pytest.approx(3.5)
 
     def test_infidelity_absent_column(self, sample_csv: Path):
-        """A gate-level CSV without the column yields None everywhere."""
+        """Treat a legacy CSV without infidelity as all missing values."""
         results = load_results(sample_csv)
         st = results["probs"].simulators["jaqsi"]
         assert st.infidelity == [None] * len(st.qubit_sizes)
@@ -86,7 +86,7 @@ class TestLoadResults:
             load_results(tmp_path / "nope.csv")
 
     def test_sweep_is_narrowed_to_one_slice(self, tmp_path: Path):
-        """Rows from other depths must not collide with the plotted slice."""
+        """Exclude other depths from the selected plot slice."""
         import csv
         from benchmark.runner import CSV_COLUMNS
 
@@ -107,8 +107,7 @@ class TestLoadResults:
         assert results["probs"].simulators["jaqsi"].mean_ms == [9.0, 9.0]
 
     def test_partial_csv_skips_incomplete(self, tmp_path: Path):
-        """If a (n_qubits, mode) pair is missing a simulator that exists
-        elsewhere in the file, that row should be skipped."""
+        """Skip a qubit count missing a simulator present elsewhere in the mode."""
         import csv
         from benchmark.runner import CSV_COLUMNS
 
@@ -185,16 +184,16 @@ class TestPlotting:
         assert png.stat().st_size > 0
 
     def test_plot_infidelity_no_data(self, sample_csv: Path, tmp_path: Path):
-        """A gate-level result file has no infidelity, so no figure is written."""
+        """Skip the infidelity figure when the CSV has no values."""
         results = load_results(sample_csv)
         out = tmp_path / "infidelity.pgf"
         plot_infidelity(results, output_path=out)
         assert not out.with_suffix(".png").exists()
 
     def test_plot_ratio_empty_results(self, tmp_path: Path):
-        """Plotting with no data should not crash."""
+        """Handle an empty timing-ratio plot."""
         plot_ratio({}, output_path=tmp_path / "empty.pdf")
 
     def test_plot_absolute_empty_results(self, tmp_path: Path):
-        """Empty results should not crash."""
+        """Handle an empty absolute-time plot."""
         plot_absolute({}, output_path=tmp_path / "empty.pdf")

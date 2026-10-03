@@ -1,9 +1,6 @@
-"""Tests for process-wide thread pinning.
+"""Test process-wide thread pinning and restore affinity afterward.
 
-Pinning is what makes the timings comparable across simulators, so these tests
-cover the mechanism rather than the resulting performance.  Every test restores
-the process CPU affinity, because pinning is global and would otherwise leak
-into the rest of the session.
+Affinity changes would otherwise leak into other tests.
 """
 
 from __future__ import annotations
@@ -17,7 +14,7 @@ from benchmark.threads import _THREAD_VARS, num_threads, pin_threads
 
 @pytest.fixture(autouse=True)
 def restore_affinity():
-    """Put the process CPU affinity back after each test."""
+    """Restore the process CPU affinity after each test."""
     if not hasattr(os, "sched_getaffinity"):
         yield
         return
@@ -28,7 +25,7 @@ def restore_affinity():
 
 @pytest.fixture(autouse=True)
 def restore_env(monkeypatch):
-    """Isolate the thread environment variables from the rest of the session."""
+    """Restore thread environment variables after each test."""
     for var in (*_THREAD_VARS, "XLA_FLAGS", "JAX_NUM_CPU_DEVICES"):
         monkeypatch.delenv(var, raising=False)
     yield
@@ -62,7 +59,7 @@ class TestPinThreads:
         not hasattr(os, "sched_setaffinity"), reason="affinity is Linux-only"
     )
     def test_takes_cores_from_the_permitted_set(self):
-        """A narrower allocation from a batch scheduler must be respected."""
+        """Restrict affinity within the CPUs already permitted by the scheduler."""
         allowed = sorted(os.sched_getaffinity(0))
         if len(allowed) < 2:
             pytest.skip("needs at least two CPUs")

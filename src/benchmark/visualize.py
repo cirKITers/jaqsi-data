@@ -54,10 +54,10 @@ class SimTimings:
 
 @dataclass
 class ModeResults:
-    """Aggregated timing data for a single measurement mode.
+    """Aggregate results for one mode.
 
-    ``simulators`` maps simulator name → :class:`SimTimings`.
-    Only qubit counts where *all* simulators have data are included.
+    ``simulators`` maps names to :class:`SimTimings`. Only qubit counts with
+    results from every simulator in that mode are included.
     """
 
     qubit_sizes: List[int] = field(default_factory=list)
@@ -86,17 +86,11 @@ def load_results(
     batch_size: Optional[int] = None,
     threads: Optional[int] = None,
 ) -> Dict[str, ModeResults]:
-    """Parse a benchmark CSV into per-mode result containers.
+    """Load a benchmark CSV into results grouped by mode.
 
-    Returns a dict mapping mode name → :class:`ModeResults`.
-    Only qubit counts where every simulator present *in that mode* has data
-    are included, so partial runs are handled gracefully and an adapter that
-    implements only some modes does not empty the others.
-
-    These figures plot runtime against qubit count, so a file sweeping several
-    circuits, depths, batch sizes or thread counts has to be narrowed to one
-    slice first.  Unset filters keep the first slice the file contains, which
-    is the whole file for a single-slice run.
+    Keep only qubit counts complete for every simulator in each mode. Filter
+    by circuit, depth, batch size, or thread count; omitted filters select
+    the first matching slice in the file.
     """
     csv_path = Path(csv_path)
     if not csv_path.exists():
@@ -184,7 +178,7 @@ def _compute_ratio_with_error(
     other_mean: List[float],
     other_std: List[float],
 ) -> Tuple[List[float], List[float]]:
-    """Compute other/ref ratio and propagated uncertainty."""
+    """Return other/reference timing and its propagated uncertainty."""
     ratios: List[float] = []
     errors: List[float] = []
     for rm, rs, om, os_ in zip(ref_mean, ref_std, other_mean, other_std):
@@ -215,12 +209,12 @@ MACHINE_EPS = 2.220446049250313e-16
 
 
 def _grid(n_modes: int) -> Tuple[int, int]:
-    """Panel grid ``(rows, cols)``; four panels wrap into 2x2 to stay one column wide."""
+    """Return panel rows and columns, wrapping four panels into a 2×2 grid."""
     return (2, 2) if n_modes == 4 else (1, n_modes)
 
 
 def _figsize(n_modes: int) -> Tuple[float, float]:
-    """Figure size for *n_modes* panels laid out by :func:`_grid`."""
+    """Return figure dimensions for the panel count."""
     rows, cols = _grid(n_modes)
     width = COLUMNWIDTH_IN if cols <= 3 else TEXTWIDTH_IN
     # A second row adds one panel height; legend and x label are shared.
@@ -228,11 +222,9 @@ def _figsize(n_modes: int) -> Tuple[float, float]:
 
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
-    """Write *fig* as PGF (for the paper) and PNG (for quick inspection).
+    """Save a figure as PNG and, when LaTeX is available, PGF.
 
-    PDF output is intentionally dropped. PGF is attempted after the PNG so a
-    missing LaTeX toolchain (e.g. on a headless compute node) degrades to a
-    PNG-only result with a warning instead of raising.
+    A missing LaTeX toolchain leaves the PNG and emits a warning.
     """
     base = Path(output_path).with_suffix("")
     png_path = base.with_suffix(".png")
@@ -250,13 +242,9 @@ def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
 
 
 def _add_shared_legend(fig: plt.Figure, axes) -> None:
-    """Lay out the subplots and add one de-duplicated legend above them.
+    """Place a shared legend above the subplots.
 
-    All subplots share the same simulators, so a single horizontal legend on
-    top is cleaner than per-axis legends overlapping the data.  The handle and
-    spacing are tightened so that up to five entries still fit into one row of
-    a single-column figure; beyond that the entries wrap into balanced rows and
-    the reserved headroom grows with the number of rows.
+    Wrap entries and reserve more space when they exceed one row.
     """
     handles: list = []
     labels: list = []
@@ -287,10 +275,9 @@ def _add_shared_legend(fig: plt.Figure, axes) -> None:
 
 
 def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
-    """Force x-axis to show only integer tick values.
+    """Show integer qubit counts on the x-axis.
 
-    Sweeps over more than eight qubit counts label every other one, so that the
-    labels of a narrow single-column panel do not collide.
+    Label every other tick when more than eight counts would crowd a panel.
     """
     labelled = qubit_sizes[::2] if len(qubit_sizes) > 8 else qubit_sizes
     ax.set_xticks(labelled)
@@ -302,7 +289,7 @@ def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
 
 
 def _label_axes(axes, ylabel: str) -> None:
-    """Label the x axes of the bottom row and the y axes of the first column."""
+    """Label the bottom x-axes and leftmost y-axes."""
     for ax in axes:
         spec = ax.get_subplotspec()
         if spec.is_last_row():
@@ -318,9 +305,9 @@ def _label_axes(axes, ylabel: str) -> None:
 def _select_modes(
     results: Dict[str, ModeResults], *, timing: bool = False
 ) -> Dict[str, ModeResults]:
-    """Drop modes not listed in :data:`PLOT_MODES`.
+    """Keep modes listed in :data:`PLOT_MODES`.
 
-    With *timing*, a pulse-level result keeps only :data:`PULSE_TIMING_MODES`.
+    For pulse timing, also require membership in :data:`PULSE_TIMING_MODES`.
     """
     if PLOT_MODES is None:
         return results
@@ -334,10 +321,9 @@ def _select_modes(
 def _infidelity_series(
     results: Dict[str, ModeResults],
 ) -> Dict[str, Dict[str, Tuple[List[int], List[float]]]]:
-    """Extract the measured infidelities, dropping empty modes and simulators.
+    """Group available infidelities by mode and simulator.
 
-    Returns mode → simulator → ``(qubit_sizes, infidelities)``, keeping only the
-    qubit counts where that simulator reported a value.
+    Return qubit counts and values; omit empty modes and simulators.
     """
     series: Dict[str, Dict[str, Tuple[List[int], List[float]]]] = {}
     for mode, mr in results.items():
@@ -354,14 +340,17 @@ def _infidelity_series(
 
 
 def _label(sim: str) -> str:
-    """Display name for a simulator; pulse adapters drop their suffix."""
+    """Return a simulator label without the pulse suffix."""
     name = sim.removesuffix("_pulse")
     # Spell the names the way their projects do (and the paper text does).
     return {"jaqsi": "JAQSI", "pennylane": "PennyLane", "pennylane_lightning": "PennyLane Lightning", "qutip": "QuTiP", "dynamiqs": "dynamiqs"}.get(name, name.capitalize())
 
 
 def _pick_reference(results: Dict[str, ModeResults]) -> str:
-    """Return the first reference simulator present in *results*."""
+    """Choose the first available preferred reference.
+
+    Fall back to ``jaqsi`` if neither preferred reference is present.
+    """
     present = {s for mr in results.values() for s in mr.simulators}
     for candidate in REFERENCE_PREFERENCE:
         if candidate in present:
@@ -376,11 +365,10 @@ def plot_ratio(
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
-    """Create a time-ratio plot (other / *reference*).
+    """Plot simulator timing divided by the reference, by mode.
 
-    One subplot per measurement mode; within each subplot every
-    non-reference simulator is drawn with a distinct colour.  When *reference*
-    is omitted it is taken from the simulators present in *results*.
+    Use a distinct color for each non-reference simulator. If ``reference``
+    is omitted, select one from the available results.
     """
     results = _select_modes(results, timing=True)
     n_modes = len(results)
@@ -458,11 +446,7 @@ def plot_absolute(
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
-    """Create a side-by-side absolute-time plot for each mode.
-
-    Within each subplot every simulator is drawn with a distinct
-    colour.
-    """
+    """Plot absolute simulator times in separate mode panels."""
     results = _select_modes(results, timing=True)
     n_modes = len(results)
     if n_modes == 0:
@@ -512,13 +496,10 @@ def plot_infidelity(
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
-    """Create a side-by-side infidelity plot for each mode.
+    """Plot pulse infidelity in separate mode panels.
 
-    Only pulse-level rows carry an infidelity, and only for the modes whose
-    output defines a state or a distribution, so modes and simulators without
-    data are dropped instead of drawn as empty panels.  Values at or below
-    :data:`MACHINE_EPS` are clipped to it and the floor is marked with a dashed
-    line.
+    Consider only :data:`PLOT_MODES`; omit simulators without values. Clip
+    values below :data:`MACHINE_EPS` to the dashed floor line.
     """
     data = _infidelity_series(_select_modes(results))
     n_modes = len(data)
@@ -564,7 +545,7 @@ def plot_infidelity(
 
 
 def print_summary(results: Dict[str, ModeResults]) -> None:
-    """Print a human-readable summary table to the logger."""
+    """Log a table summarizing benchmark results."""
     # Determine all simulators across all modes
     all_sims: List[str] = []
     for mr in results.values():

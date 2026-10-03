@@ -1,4 +1,4 @@
-"""Record the installed environment and reject incompatible CSV resumes."""
+"""Record benchmark provenance and validate CSV resumes."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from benchmark.config import BenchmarkConfig
 
 
 def _source_identity(package: str) -> dict:
-    """Identify the imported source, including uncommitted local edits."""
+    """Identify the imported source, including local edits."""
     spec = importlib.util.find_spec(package)
     assert spec is not None and spec.origin is not None
     root = Path(spec.origin).resolve().parent
@@ -66,11 +66,11 @@ def _environment() -> dict:
 def record_provenance(
     csv_path: Path, cfg: BenchmarkConfig, *, has_results: bool
 ) -> None:
-    """Write a JSON sidecar; settings absent from CSV keys must match on resume.
+    """Record run provenance in a JSON sidecar and validate resumes.
 
-    Sweep axes (circuit, depth, width, batch, threads, modes and simulators) may
-    change. Every invocation's resolved configuration and CPU settings are kept.
-    Legacy CSVs remain readable but cannot be resumed without provenance.
+    Workload sweep axes may change between runs. Settings absent from CSV keys
+    must match; legacy CSVs without provenance cannot be resumed. Each run's
+    resolved configuration and CPU settings are retained.
     """
     settings = {
         name: getattr(cfg, name)

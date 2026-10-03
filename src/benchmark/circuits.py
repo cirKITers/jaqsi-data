@@ -1,21 +1,9 @@
-"""Backend-agnostic definition of the benchmark circuits.
+"""Define backend-independent benchmark circuits.
 
-Every adapter builds its circuit by walking the operation list of a
-:class:`CircuitSpec` rather than restating the circuit in its own API, so all
-simulators provably execute the same gate sequence with the same parameters.
-
-Parameters are split into two flat vectors:
-
-``inputs``
-    Batched.  One vector per sample, so a batch of shape ``(B, n_inputs)``
-    represents $B$ independent evaluations.
-``weights``
-    Shared across the batch.  A single vector of shape ``(n_weights,)``.
-
-This is the split a QML workload has: a batch of data encoded into the circuit
-against one set of trainable parameters.  Families without a data-encoding
-layer leave ``weights`` empty and carry their parameters in ``inputs``, which
-keeps the batch axis in the same place for every family.
+Each adapter reads the same :class:`CircuitSpec` operation list. Batched
+``inputs`` have shape ``(batch, n_inputs)``; ``weights`` have shape
+``(n_weights,)`` and are shared across the batch. Families without a data
+encoding layer keep their parameters in ``inputs``.
 """
 
 from __future__ import annotations
@@ -32,11 +20,10 @@ GATES = ("H", "RX", "RZ", "CRX", "CNOT", "DEPOL")
 
 @dataclass(frozen=True)
 class Op:
-    """One gate of a circuit.
+    """Represent one circuit operation.
 
-    ``source`` names the parameter vector the rotation angle is read from
-    (``"inputs"`` or ``"weights"``) and ``index`` is the position within it.
-    Both are ``None``/``-1`` for the non-parametric gates.
+    For rotations, ``source`` selects ``inputs`` or ``weights`` and ``index``
+    locates the angle. Other gates use ``None`` and ``-1``.
     """
 
     gate: str
@@ -47,10 +34,10 @@ class Op:
 
 @dataclass(frozen=True)
 class CircuitSpec:
-    """A benchmark circuit at a fixed qubit count and depth.
+    """Describe a circuit at a fixed width and depth.
 
-    ``depolarizing`` is the probability of every ``DEPOL`` channel in ``ops``,
-    and zero for a noise-free circuit.
+    ``depolarizing`` is the probability of each ``DEPOL`` operation, or zero
+    for a circuit without noise.
     """
 
     family: str
@@ -63,10 +50,9 @@ class CircuitSpec:
 
     @property
     def trainable(self) -> str:
-        """Name of the parameter vector the gradient is taken with respect to.
+        """Return the parameter vector differentiated by ``grad``.
 
-        Families with a data-encoding layer train ``weights``; the ones that
-        carry all their parameters in ``inputs`` train those instead.
+        Data-encoding families train ``weights``; other families train ``inputs``.
         """
         return "weights" if self.n_weights else "inputs"
 
@@ -76,11 +62,10 @@ class CircuitSpec:
 
 
 def _crx_ring(n_qubits: int, n_layers: int) -> Tuple[List[Op], int, int]:
-    """Hadamard layer followed by *n_layers* rings of $CRX$.
+    """Build a Hadamard layer followed by ``n_layers`` $CRX$ rings.
 
-    The gate-level and pulse-level benchmarks both run this family; it is the
-    only one ``pulse_model`` transcribes.  Every $CRX$ carries its own angle,
-    so a ring of $n$ gates has $n$ independent parameters.
+    Each $CRX$ has its own angle. This is the circuit transcribed by the pulse
+    model.
     """
     ops = [Op("H", (i,)) for i in range(n_qubits)]
     k = 0
@@ -92,24 +77,13 @@ def _crx_ring(n_qubits: int, n_layers: int) -> Tuple[List[Op], int, int]:
 
 
 def _hea(n_qubits: int, n_layers: int) -> Tuple[List[Op], int, int]:
-    """Hardware-efficient ansatz with an $RX$ data-encoding layer.
+    """Build the hardware-efficient ansatz with $RX$ data encoding.
 
-    One $RX$ per wire encodes the input, then *n_layers* blocks of rotations on
-    every wire followed by a $CNOT$ ring.  This is the
-    rotation-layer/entangler-ring circuit the Yao and Qulacs benchmarks use,
-    with the encoding layer that makes the batch axis a data axis.
-
-    Following that convention, the blocks are $RZ \\cdot RX \\cdot RZ$ except
-    the last, which is $RZ \\cdot RX$.  A trailing $RZ$ could not change a
-    Pauli-Z expectation value anyway: it only adds phases, and the $CNOT$ ring
-    after it permutes the computational basis, so neither touches the $Z$-basis
-    probabilities.  Keeping it would leave $n$ parameters with an exactly zero
-    gradient.
-
-    The leading $RZ$ of the first block *is* kept, unlike in Yao and Qulacs.
-    They start from $\\lvert 0 \\rangle$, where a leading $RZ$ is a global
-    phase; here the encoding layer has already rotated the state off the $Z$
-    axis, so it acts non-trivially.
+    Each layer follows the Yao/Qulacs rotation and entangler pattern: $RZ$,
+    $RX$, $RZ$ rotations followed by a $CNOT$ ring. The final layer omits its
+    trailing $RZ$ because it cannot affect a
+    Pauli-Z expectation and would have zero gradient. The first $RZ$ remains:
+    the encoding layer has already rotated the initial state off the Z axis.
     """
     ops = [Op("RX", (i,), "inputs", i) for i in range(n_qubits)]
     k = 0
@@ -137,12 +111,11 @@ PULSE_FAMILIES = frozenset({"crx_ring"})
 def build_spec(
     family: str, n_qubits: int, n_layers: int, depolarizing: float = 0.0
 ) -> CircuitSpec:
-    """Return the :class:`CircuitSpec` of *family* at the given size.
+    """Build a :class:`CircuitSpec` for the given family and size.
 
-    A non-zero *depolarizing* follows every gate with a single-qubit
-    depolarizing channel of that probability on each wire the gate acts on.
-    The channels are ops like the gates, rather than left to each framework's
-    noise model, so every simulator applies the same channel sequence.
+    Nonzero ``depolarizing`` adds a channel on every affected wire after each
+    gate. Keeping channels in the operation list gives adapters the same
+    noise sequence.
     """
     if family not in FAMILIES:
         raise ValueError(
@@ -170,11 +143,9 @@ def build_spec(
 
 
 def angle(op: Op, inputs, weights):
-    """Return the rotation angle of *op*, read from the matching vector.
+    """Read ``op``'s angle from its input or weight vector.
 
-    Indexing with an ellipsis keeps the call valid for a single parameter
-    vector and for a batch of them, which the adapters relying on their own
-    parameter broadcasting need.
+    The final-axis lookup also accepts batched parameters.
     """
     vector = inputs if op.source == "inputs" else weights
     return vector[..., op.index]

@@ -1,15 +1,7 @@
-"""Cross-validation tests: verify all simulators produce matching results.
+"""Cross-validate simulator output against reference implementations.
 
-Every simulator adapter is compared against PennyLane (the reference
-implementation) across all measurement modes, both circuit families and
-several qubit counts.  PennyLane returns expval as ``(n_obs, batch)`` while the
-other adapters use ``(batch, n_obs)``, so the comparison accounts for that
-transpose.
-
-The gradient mode is cross-validated separately and against jaqsi, since the
-adapters reach it through four different differentiation methods:
-backpropagation, the adjoint method, the parameter-shift rule and Qulacs'
-backprop.
+Compare forward modes with PennyLane, accounting for its transposed
+expectations. Compare gradients with JAQSI across differentiation methods.
 """
 
 from __future__ import annotations
@@ -85,7 +77,7 @@ def pennylane():
 # ------------------------------------------------------------------
 
 class TestCrossValidation:
-    """Compare every simulator against PennyLane for every mode."""
+    """Compare forward outputs with PennyLane across modes and circuits."""
 
     @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
@@ -150,7 +142,7 @@ class TestCrossValidation:
 # ------------------------------------------------------------------
 
 class TestBatchCrossValidation:
-    """Verify batch execution produces consistent results across simulators."""
+    """Check consistent batch results across simulators."""
 
     @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _OTHER_SIMULATORS)
@@ -192,7 +184,7 @@ _GRAD_SIMULATORS = [
 
 
 class TestGradientCrossValidation:
-    """All differentiation methods must agree with jaqsi's reverse-mode AD."""
+    """Compare adapter gradients with JAQSI reverse-mode gradients."""
 
     @pytest.mark.parametrize("sim_cls", _GRAD_SIMULATORS)
     @pytest.mark.parametrize("n_qubits", [2, 3])
@@ -226,7 +218,7 @@ class TestGradientCrossValidation:
 
     @pytest.mark.parametrize("family", _FAMILIES)
     def test_grad_matches_finite_differences(self, family):
-        """An independent check that the differentiated loss is the right one."""
+        """Check the differentiated loss against finite differences."""
         spec = build_spec(family, 3, 2)
         sim = JaqsiBenchmark()
         sim.setup(spec, "grad")
@@ -280,7 +272,7 @@ _DEPOLARIZING = 0.05
 
 
 class TestNoiseCrossValidation:
-    """The noisy density matrix must agree with PennyLane's default.mixed."""
+    """Compare noisy density matrices with PennyLane ``default.mixed``."""
 
     @pytest.mark.parametrize("family", _FAMILIES)
     @pytest.mark.parametrize("sim_cls", _NOISE_SIMULATORS)

@@ -1,9 +1,4 @@
-"""Simulator adapters.
-
-
-Concrete simulators are imported lazily to avoid hard failures when
-optional backends (e.g. ``jaqsi``, ``qiskit``) are not installed.
-"""
+"""Load simulator adapters lazily to allow optional backends."""
 
 import importlib
 

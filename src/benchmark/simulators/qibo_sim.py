@@ -1,8 +1,6 @@
-"""Qibo simulator benchmark adapter.
+"""Benchmark Qibo statevector and density matrix simulators locally.
 
-Local statevector / density-matrix simulation, no external provider or API key
-required.  ``optimal_config`` selects the qibojit backend in every mode; see
-:meth:`QiboBenchmark.setup` for the measurements behind that choice.
+``optimal_config`` selects qibojit in every mode.
 """
 
 from __future__ import annotations
@@ -46,7 +44,7 @@ class QiboBenchmark(SimulatorBenchmark):
     def _build_circuit(
         self, spec: CircuitSpec, *, density_matrix: bool = False
     ) -> Circuit:
-        """Build the parametric benchmark circuit of *spec*."""
+        """Build a parametric Qibo circuit from ``spec``."""
         c = Circuit(spec.n_qubits, density_matrix=density_matrix)
         for op in spec.ops:
             if op.gate == "H":
@@ -114,7 +112,7 @@ class QiboBenchmark(SimulatorBenchmark):
         self._run_fn = self._make_run_fn(mode)
 
     def _parameters(self, sample: np.ndarray, weights: np.ndarray) -> List[float]:
-        """Return the parametric gate angles in circuit order."""
+        """Return gate angles in circuit order."""
         vectors = {"inputs": sample, "weights": weights}
         return [float(vectors[op.source][op.index]) for op in self._param_ops]
 
@@ -122,7 +120,7 @@ class QiboBenchmark(SimulatorBenchmark):
     # Run function factory
     # ------------------------------------------------------------------
     def _make_run_fn(self, mode: Mode) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
-        """Return a callable that maps a batch of inputs to results."""
+        """Build a function that executes a batch of inputs."""
 
         if mode == "state":
             def _run_state(inputs: jnp.ndarray, weights: jnp.ndarray) -> jnp.ndarray:

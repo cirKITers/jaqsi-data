@@ -55,11 +55,10 @@ def sample_csv(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def drag_with_beta(monkeypatch):
-    """Run the pulse adapters on DRAG with a non-zero weight ``TEST_BETA``.
+    """Run pulse adapters with a nonzero DRAG quadrature.
 
-    The calibrated DRAG weight vanishes, which leaves the quadrature term
-    numerically silent.  jaqsi's defaults, which the transcription reads, are
-    patched, and jaqsi's pulse state is reset afterwards.
+    JAQSI's calibrated DRAG weight is zero, so patch it for this test and
+    restore the pulse state afterward.
     """
     import jax.numpy as jnp
     from jaqsi.pulses import PulseEnvelope, PulseInformation

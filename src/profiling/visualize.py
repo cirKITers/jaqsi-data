@@ -1,8 +1,4 @@
-"""Visualization for JAQSI profiling results.
-
-Generates publication-quality plots from the profiling summary data,
-suitable for inclusion in papers or technical reports.
-"""
+"""Plot and summarize JAQSI profiling results."""
 
 from __future__ import annotations
 
@@ -75,11 +71,9 @@ MODE_MARKERS: Dict[str, str] = {
 
 
 def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
-    """Write the figure as PGF (for the paper) and PNG (for quick inspection).
+    """Save a figure as PNG and, when LaTeX is available, PGF.
 
-    PDF output is intentionally dropped. PGF is attempted after the PNG so a
-    missing LaTeX toolchain (e.g. on a headless compute node) degrades to a
-    PNG-only result with a warning instead of raising.
+    A missing LaTeX toolchain leaves the PNG and emits a warning.
     """
     base = Path(output_path).with_suffix("")
     png_path = base.with_suffix(".png")
@@ -97,7 +91,7 @@ def _save_figure(fig: plt.Figure, output_path: str | Path) -> None:
 
 
 def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
-    """Force x-axis to show only integer tick values."""
+    """Show only integer x-axis ticks."""
     ax.set_xticks(qubit_sizes)
     ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(qubit_sizes))
     ax.xaxis.set_major_formatter(
@@ -111,7 +105,7 @@ def _set_integer_xticks(ax: plt.Axes, qubit_sizes: List[int]) -> None:
 
 @dataclass
 class ProfilingTimings:
-    """Timing and memory data for a single measurement mode across qubit counts."""
+    """Timing and memory measurements for one mode across qubit counts."""
 
     qubit_sizes: List[int] = field(default_factory=list)
     wall_time_s: List[float] = field(default_factory=list)
@@ -129,17 +123,9 @@ class ProfilingTimings:
 # ------------------------------------------------------------------
 
 def load_profiling_results(results: list[dict]) -> Dict[str, ProfilingTimings]:
-    """Organise a list of profiling result dicts by mode.
+    """Group ``JaqsiProfiler.run_all()`` results by mode.
 
-    Parameters
-    ----------
-    results : list[dict]
-        The list returned by ``JaqsiProfiler.run_all()``.
-
-    Returns
-    -------
-    dict
-        Mapping from mode name → :class:`ProfilingTimings`.
+    Return a mapping from mode names to :class:`ProfilingTimings`.
     """
     by_mode: Dict[str, ProfilingTimings] = {}
     for r in results:
@@ -217,19 +203,9 @@ def save_profiling_csv(
     results: list[dict],
     csv_path: str | Path,
 ) -> Path:
-    """Write profiling results to a CSV file for later re-plotting.
+    """Save ``JaqsiProfiler.run_all()`` results to ``csv_path``.
 
-    Parameters
-    ----------
-    results : list[dict]
-        The list returned by ``JaqsiProfiler.run_all()``.
-    csv_path : str or Path
-        Output file path.
-
-    Returns
-    -------
-    Path
-        The path the CSV was written to.
+    Return the output path.
     """
     csv_path = Path(csv_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,26 +246,10 @@ def plot_scaling(
     use_avg: bool = True,
     log_y: bool = True,
 ) -> None:
-    """Plot execution time vs qubit count — one line per mode.
+    """Plot execution time against qubit count for each mode.
 
-    This is the primary figure for a paper: it shows how JAQSI scales
-    across measurement modes as qubit count grows.
-
-    Parameters
-    ----------
-    results : dict
-        Mapping of mode → :class:`ProfilingTimings` (from
-        :func:`load_profiling_results` or :func:`load_profiling_csv`).
-    title : str
-        Figure suptitle.
-    output_path : str or Path, optional
-        If given, the figure is written to this base path as PGF and PNG.
-    show : bool
-        Call ``plt.show()`` after rendering.
-    use_avg : bool
-        If *True* plot per-run average; otherwise plot total wall time.
-    log_y : bool
-        Use logarithmic y-axis.
+    ``use_avg`` selects per-run time instead of total wall time; ``log_y``
+    enables a logarithmic y-axis. Save PGF and PNG if ``output_path`` is set.
     """
     with plt.rc_context(PLOT_RC):
         fig, ax = plt.subplots(figsize=(COLWIDTH_IN, COLWIDTH_IN * 0.78))
@@ -336,21 +296,10 @@ def plot_per_mode(
     show: bool = False,
     log_y: bool = True,
 ) -> None:
-    """One subplot per measurement mode showing scaling behaviour.
+    """Plot execution time against qubit count in separate mode panels.
 
-    This is useful when modes have vastly different magnitudes and
-    sharing a y-axis compresses the smaller modes.
-
-    Parameters
-    ----------
-    results : dict
-        Mapping of mode → :class:`ProfilingTimings`.
-    output_path : str or Path, optional
-        If given, the figure is written to this base path as PGF and PNG.
-    show : bool
-        Call ``plt.show()`` after rendering.
-    log_y : bool
-        Use logarithmic y-axis.
+    Separate panels keep modes with different time scales legible. Save PGF
+    and PNG if ``output_path`` is set.
     """
     n_modes = len(results)
     if n_modes == 0:
@@ -404,24 +353,10 @@ def plot_mode_comparison_bar(
     output_path: Optional[str | Path] = None,
     show: bool = False,
 ) -> None:
-    """Bar chart comparing modes at a fixed qubit count.
+    """Compare mode execution times at one qubit count.
 
-    If *qubit_count* is ``None`` the largest available qubit count is
-    used.  This figure is ideal for a paper table/figure that answers
-    "which measurement mode is cheapest at scale?".
-
-    Parameters
-    ----------
-    results : dict
-        Mapping of mode → :class:`ProfilingTimings`.
-    qubit_count : int, optional
-        The qubit count to compare.  Defaults to the largest available.
-    title : str, optional
-        Figure title.
-    output_path : str or Path, optional
-        If given, the figure is written to this base path as PGF and PNG.
-    show : bool
-        Call ``plt.show()`` after rendering.
+    If ``qubit_count`` is omitted, use the largest available count. Save PGF
+    and PNG if ``output_path`` is set.
     """
     if not results:
         logger.warning("No results to plot.")
@@ -490,26 +425,10 @@ def plot_memory(
     show: bool = False,
     log_y: bool = True,
 ) -> None:
-    """Plot peak JAX device memory vs qubit count — one line per mode.
+    """Plot peak JAX device memory against qubit count for each mode.
 
-    This figure shows how JAQSI's memory footprint scales with the
-    number of qubits for each measurement mode.  It is especially
-    useful for spotting modes with exponential memory growth (e.g.
-    density-matrix simulation).
-
-    Parameters
-    ----------
-    results : dict
-        Mapping of mode → :class:`ProfilingTimings` (from
-        :func:`load_profiling_results` or :func:`load_profiling_csv`).
-    title : str
-        Figure suptitle.
-    output_path : str or Path, optional
-        If given, the figure is written to this base path as PGF and PNG.
-    show : bool
-        Call ``plt.show()`` after rendering.
-    log_y : bool
-        Use logarithmic y-axis (recommended given exponential scaling).
+    ``log_y`` enables a logarithmic y-axis. Save PGF and PNG if
+    ``output_path`` is set.
     """
     # Check that memory data is available
     has_data = any(
@@ -564,7 +483,7 @@ def plot_memory(
 
 
 def print_profiling_summary(results: Dict[str, ProfilingTimings]) -> None:
-    """Print a human-readable summary table to the logger."""
+    """Log a table summarizing profiling results."""
     header = (
         f"{'Mode':<10} {'Qubits':>6} {'Batch':>6} {'Runs':>5} "
         f"{'Avg (ms)':>10} {'JAX Peak (MB)':>14}"
