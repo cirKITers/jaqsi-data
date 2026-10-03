@@ -63,7 +63,6 @@ uv run python -m benchmark --visualize-only path/to/benchmarks.csv
 
 Plots are written beside the CSV.
 Use `--show` to display them interactively.
-TODO: Allow the visualization command to select a circuit, depth, batch size, or thread count when a CSV contains several; it currently plots the first slice.
 
 ## Docker
 
@@ -85,7 +84,7 @@ docker compose run --rm tests
 ```
 
 Arguments after the service name are appended to the entrypoint, so every
-override and flag under [Usage](#usage) works unchanged.
+override and flag under [Configuring benchmarks](#configuring-benchmarks) works unchanged.
 The repository is bind-mounted at `/app` and the image holds only the locked
 dependencies, so results land in the working tree exactly where a native
 `uv run python -m benchmark` puts them, owned by the `UID`/`GID` from `.env`,
@@ -104,7 +103,7 @@ complex amplitudes per copy and several copies per batch.
 The cpuset fixes what the run may use, not what else may use those cores, so on
 a shared machine a sweep is comparable against itself rather than against one
 taken on a quiet host.
-It is also the set [`threads`](#threads) pins within, since `pin_threads` takes
+It is also the set `threads` pins within, since `pin_threads` takes
 its cores from what the process is already permitted; a multi-threaded run
 should set `threads` to the size of the cpuset.
 
