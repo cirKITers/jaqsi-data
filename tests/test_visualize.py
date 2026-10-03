@@ -26,15 +26,15 @@ def _write_pulse_csv(path: Path) -> Path:
         w = csv.writer(f)
         w.writerow(CSV_COLUMNS)
         for q in (2, 3):
-            # expval leaves the column empty, state fills it (including a zero).
+            # expval leaves the column empty, density fills it (including a zero).
             w.writerow(("crx_ring", 1, q, "expval", "jaqsi_pulse",
                         "1.0", "0.1", 1, 10, 1, ""))
             w.writerow(("crx_ring", 1, q, "expval", "qutip_pulse",
                         "4.0", "0.2", 1, 10, 1, ""))
-            w.writerow(("crx_ring", 1, q, "state", "jaqsi_pulse",
+            w.writerow(("crx_ring", 1, q, "density", "jaqsi_pulse",
                         "1.0", "0.1", 1, 10, 1,
                         "0.000000e+00" if q == 2 else "2.220446e-16"))
-            w.writerow(("crx_ring", 1, q, "state", "qutip_pulse",
+            w.writerow(("crx_ring", 1, q, "density", "qutip_pulse",
                         "4.0", "0.2", 1, 10, 1, "1.1e-14"))
     return path
 
@@ -76,7 +76,7 @@ class TestLoadResults:
     def test_infidelity_parsed(self, tmp_path: Path):
         results = load_results(_write_pulse_csv(tmp_path / "pulse.csv"))
         assert results["expval"].simulators["jaqsi_pulse"].infidelity == [None, None]
-        assert results["state"].simulators["qutip_pulse"].infidelity == [
+        assert results["density"].simulators["qutip_pulse"].infidelity == [
             pytest.approx(1.1e-14),
             pytest.approx(1.1e-14),
         ]

@@ -10,6 +10,12 @@ import pytest
 from benchmark.__main__ import main
 
 
+@pytest.fixture(autouse=True)
+def _keep_affinity(monkeypatch):
+    """main() pins the whole test process, which caps numba for later tests."""
+    monkeypatch.setattr("benchmark.threads.pin_threads", lambda threads: None)
+
+
 class TestCLIVisualize:
     """--visualize-only should load CSV and generate plots without running benchmarks."""
 
