@@ -7,7 +7,7 @@ authors:
   - family-names: "Franz"
     given-names: "Maja"
     orcid: "https://orcid.org/0000-0002-2801-7192"
-title: "JAQSI-data"
+title: "Reproduction Package for 'JAQSI: Just Another Quantum Simulator'"
 version: 0.1.1
 date-released: 2026-10-01
 repository-code: "https://github.com/cirKITers/jaqsi-data"
