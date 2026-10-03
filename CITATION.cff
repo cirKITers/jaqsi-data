@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Strobl"
+    given-names: "Melvin"
+    orcid: "https://orcid.org/0000-0003-0229-9897"
+  - family-names: "Franz"
+    given-names: "Maja"
+    orcid: "https://orcid.org/0000-0002-2801-7192"
+title: "JAQSI-data"
+version: 0.1.1
+date-released: 2026-10-01
+repository-code: "https://github.com/cirKITers/jaqsi-data"
+license: MIT
